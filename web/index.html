@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Impossible Pairing Board</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #020617; color: white; font-family: sans-serif; }
+        .glass { background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; }
+        .neon-glow { box-shadow: 0 0 20px rgba(6, 182, 212, 0.2); }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-6">
+
+    <div id="app" class="glass p-8 w-full max-w-md text-center neon-glow">
+        <img src="pic.png" class="w-44 mx-auto mb-6 rounded-2xl border-2 border-cyan-500/30">
+        <h1 class="text-xl font-black tracking-widest text-cyan-400 mb-8">IMPOSSIBLE BOARD</h1>
+
+        <div id="home-view" class="space-y-4">
+            <button onclick="showPage('pair-view')" class="w-full py-4 bg-cyan-600 rounded-xl font-bold hover:bg-cyan-500 transition-all">CONNECT NUMBER</button>
+            <button onclick="showPage('manage-view')" class="w-full py-4 bg-white/5 rounded-xl font-bold border border-white/10 hover:bg-white/10 transition-all">MANAGE NUMBERS</button>
+        </div>
+
+        <div id="pair-view" class="hidden space-y-4">
+            <input type="text" id="num-input" placeholder="+923027665767" class="w-full p-4 bg-black/40 border border-white/20 rounded-xl text-center text-xl focus:border-cyan-500 outline-none">
+            <button onclick="startPairing()" class="w-full py-4 bg-cyan-600 rounded-xl font-bold">CONNECT</button>
+            <div id="code-result" class="hidden p-4 bg-cyan-500/10 rounded-xl border border-cyan-500/30 mt-4">
+                <p class="text-xs text-cyan-400 uppercase mb-2">Pairing Code</p>
+                <div class="flex items-center justify-between px-4">
+                    <span id="pair-code" class="text-3xl font-mono font-bold tracking-tighter">---- ----</span>
+                    <button onclick="copyCode()" class="bg-white/10 p-2 rounded-lg text-sm">COPY</button>
+                </div>
+            </div>
+            <button onclick="showPage('home-view')" class="text-sm text-gray-500 mt-4 underline">Back</button>
+        </div>
+
+        <div id="manage-view" class="hidden space-y-6 text-left">
+            <div class="p-5 bg-black/40 rounded-xl border border-white/10">
+                <p class="text-[10px] text-gray-500 uppercase tracking-widest">Active Bot</p>
+                <h2 class="text-lg font-bold text-cyan-400">+923027665767</h2>
+                <div class="grid grid-cols-2 gap-4 mt-4 text-xs">
+                    <div class="bg-white/5 p-2 rounded-lg">Uptime: <b id="uptime">5h 20m</b></div>
+                    <div class="bg-white/5 p-2 rounded-lg">Cmds: <b id="cmds">248</b></div>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button class="flex-1 py-3 bg-green-500/20 text-green-400 rounded-xl border border-green-500/30 text-sm font-bold">RENEW SESSION</button>
+                <button class="flex-1 py-3 bg-red-500/20 text-red-400 rounded-xl border border-red-500/30 text-sm font-bold">DELETE NUMBER</button>
+            </div>
+            <button onclick="showPage('home-view')" class="w-full text-center text-sm text-gray-500">Back to Home</button>
+        </div>
+
+        <footer class="mt-12 text-[9px] text-gray-600 tracking-[3px] uppercase">
+            Development by Nothing Is Impossible &copy; 2025
+        </footer>
+    </div>
+
+    <script>
+        function showPage(id) {
+            ['home-view', 'pair-view', 'manage-view'].forEach(p => document.getElementById(p).classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+        }
+        async function startPairing() {
+            const num = document.getElementById('num-input').value;
+            const res = await fetch('/api/pair', { method: 'POST', body: JSON.stringify({number: num}), headers: {'Content-Type': 'application/json'} });
+            const data = await res.json();
+            document.getElementById('pair-code').innerText = data.code;
+            document.getElementById('code-result').classList.remove('hidden');
+        }
+        function copyCode() {
+            navigator.clipboard.writeText(document.getElementById('pair-code').innerText);
+            alert('Code Copied!');
+        }
+    </script>
+</body>
+</html>
