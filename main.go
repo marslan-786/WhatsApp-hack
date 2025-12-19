@@ -3,11 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
@@ -24,65 +23,64 @@ import (
 var client *whatsmeow.Client
 
 func main() {
-	fmt.Println("🚀 Starting Impossible Bot...")
+	fmt.Println("🚀 Initializing Impossible Bot Engine...")
 
+	// ڈیٹا بیس سیٹ اپ
 	dbURL := os.Getenv("DATABASE_URL")
+	dbType := "postgres"
 	if dbURL == "" {
-		fmt.Println("⚠️ DATABASE_URL not found, using local SQLite")
-		dbURL = "file:kami_session.db?_foreign_keys=on"
+		dbURL = "file:impossible_session.db?_foreign_keys=on"
+		dbType = "sqlite3"
 	}
 
 	dbLog := waLog.Stdout("Database", "INFO", true)
-	// Postgres یا SQLite سیشن اسٹور
-	dbType := "postgres"
-	if os.Getenv("DATABASE_URL") == "" { dbType = "sqlite3" }
-	
-	container, err := sqlstore.New(dbType, dbURL, dbLog)
-	if err != nil { panic(err) }
+	// فکسڈ: context.Background() شامل کر دیا گیا ہے
+	container, err := sqlstore.New(context.Background(), dbType, dbURL, dbLog)
+	if err != nil {
+		fmt.Printf("❌ Database Init Error: %v\n", err)
+		panic(err)
+	}
 
+	// فکسڈ: context.Background() شامل کر دیا گیا ہے
 	deviceStore, err := container.GetFirstDevice(context.Background())
-	if err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 
 	client = whatsmeow.NewClient(deviceStore, waLog.Stdout("Client", "INFO", true))
 	client.AddEventHandler(eventHandler)
 
-	// پورٹ ہینڈلنگ
+	// ویب سرور (Gin)
 	port := os.Getenv("PORT")
 	if port == "" { port = "8080" }
-
+	
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 	r.StaticFile("/", "./web/index.html")
 	r.StaticFile("/pic.png", "./web/pic.png")
 
-	// پیرنگ API جو "undefined" والے مسئلے کو حل کرے گی
 	r.POST("/api/pair", func(c *gin.Context) {
 		var req struct{ Number string `json:"number"` }
 		if err := c.BindJSON(&req); err != nil {
-			c.JSON(400, gin.H{"error": "Invalid JSON input"})
+			c.JSON(400, gin.H{"error": "Invalid input"})
 			return
 		}
 
 		if !client.IsConnected() {
-			err := client.Connect()
-			if err != nil {
-				c.JSON(500, gin.H{"error": "WhatsApp connection failed"})
-				return
-			}
+			client.Connect()
 		}
 
-		// پیرنگ کوڈ جنریٹ کرنا
+		// پیرنگ لاجک
 		code, err := client.PairPhone(context.Background(), req.Number, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 		if err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
-
 		c.JSON(200, gin.H{"code": code})
 	})
 
 	go func() {
-		fmt.Printf("🌐 Web Interface: http://0.0.0.0:%s\n", port)
+		fmt.Printf("🌐 Web Dashboard live on port %s\n", port)
 		r.Run(":" + port)
 	}()
 
@@ -90,9 +88,10 @@ func main() {
 		client.Connect()
 	}
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	<-c
+	// Exit signal handling
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
 	client.Disconnect()
 }
 
@@ -100,23 +99,30 @@ func eventHandler(evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
 		body := v.Message.GetConversation()
-		if body == "#menu" {
+		if body == "" {
+			body = v.Message.GetExtendedTextMessage().GetText()
+		}
+
+		// مینیو کمانڈ چیک کرنا
+		if strings.TrimSpace(body) == "#menu" {
 			sendOfficialMenu(v.Info.Chat)
 		}
 	}
 }
 
+// واٹس ایپ MENU بٹن (List Message)
 func sendOfficialMenu(chat types.JID) {
 	listMsg := &waProto.ListMessage{
-		Title:       proto.String("IMPOSSIBLE MENU"),
-		Description: proto.String("Select category"),
+		Title:       proto.String("IMPOSSIBLE BOT MENU"),
+		Description: proto.String("Select a command category below"),
 		ButtonText:  proto.String("MENU"),
 		ListType:    waProto.ListMessage_SINGLE_SELECT.Enum(),
 		Sections: []*waProto.ListMessage_Section{
 			{
-				Title: proto.String("ADMIN"),
+				Title: proto.String("AVAILABLE TOOLS"),
 				Rows: []*waProto.ListMessage_Row{
-					{Title: proto.String("Ping"), RowID: proto.String("ping")},
+					{Title: proto.String("Ping Status"), RowID: proto.String("ping")},
+					{Title: proto.String("Check ID"), RowID: proto.String("id")},
 				},
 			},
 		},
