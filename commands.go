@@ -534,6 +534,10 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 // 📜 باقی UI FUNCTIONS
 // ═══════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════
+// 📜 باقی UI FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+
 func sendPing(client *whatsmeow.Client, v *events.Message) {
 	start := time.Now()
 	time.Sleep(10 * time.Millisecond)
@@ -676,8 +680,10 @@ func ConnectNewSession(device *store.Device) {
 	clientLog := waLog.Stdout("Client", "DEBUG", true)
 	client := whatsmeow.NewClient(device, clientLog)
 	
-	// Event handler
-	client.AddEventHandler(handler)
+	// Event handler - client ke sath
+	client.AddEventHandler(func(evt interface{}) {
+		handler(client, evt)
+	})
 
 	botID := getCleanID(device.ID.User)
 	
