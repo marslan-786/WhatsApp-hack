@@ -2,15 +2,16 @@ package main
 
 import (
 	"sync"
+	"time"
 )
 
-// --- ⚙️ سیٹنگز ---
+// --- ⚙️ CONFIGURATION ---
 const (
 	BOT_NAME   = "IMPOSSIBLE BOT V4"
 	OWNER_NAME = "Nothing Is Impossible"
 )
 
-// --- 💾 ڈیٹا ڈھانچے ---
+// --- 💾 DATA STRUCTURES ---
 type GroupSettings struct {
 	ChatID         string         `bson:"chat_id" json:"chat_id"`
 	Mode           string         `bson:"mode" json:"mode"`
@@ -40,3 +41,13 @@ type SetupState struct {
 	GroupID string
 	User    string
 }
+
+// --- 🌍 GLOBAL VARIABLES ---
+var (
+	startTime  = time.Now()
+	data       BotData
+	dataMutex  sync.RWMutex
+	setupMap   = make(map[string]*SetupState)
+	groupCache = make(map[string]*GroupSettings)
+	cacheMutex sync.RWMutex
+)
