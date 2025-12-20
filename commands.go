@@ -117,7 +117,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		sendOwner(client, v)
 
 	case "data":
-		replyMessage(client, v, "╭═══════════════════╮\n┃   📂 DATA STATUS    ┃\n├═══════════════════┤\n┃ ✅ Data is safe in  ┃\n┃    MongoDB Atlas    ┃\n╰═══════════════════╯")
+		replyMessage(client, v, "╭═══════════════════╮\n┃   📂 DATA STATUS \n├═══════════════════┤\n┃ ✅ Data Base Coming╰═══════════════════╯")
 
 	// سیٹنگز
 	case "alwaysonline":
@@ -241,70 +241,70 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 		currentMode = "PRIVATE"
 	}
 
-	menu := fmt.Sprintf(`╔═══════════════════════════╗
-║   %s   ║
-╠═══════════════════════════╣
-║ 👋 *Assalam-o-Alaikum*      ║
-║ 👑 *Owner:* %s              ║
-║ 🛡️ *Mode:* %s               ║
-║ ⏳ *Uptime:* %s             ║
-╠═══════════════════════════╣
-║                           ║
-║  ╭─────── DOWNLOADERS ─────╮║
-║  │ 🔸 *%sfb* - Facebook    │║
-║  │ 🔸 *%sig* - Instagram   │║
-║  │ 🔸 *%spin* - Pinterest  │║
-║  │ 🔸 *%stiktok* - TikTok  │║
-║  │ 🔸 *%sytmp3* - YT Audio │║
-║  │ 🔸 *%sytmp4* - YT Video │║
-║  ╰──────────────────────────╯║
-║                           ║
-║  ╭─────── GROUP ────────────╮║
-║  │ 🔸 *%sadd* - Add Member │║
-║  │ 🔸 *%sdemote* - Demote  │║
-║  │ 🔸 *%sgroup* - Settings │║
-║  │ 🔸 *%shidetag* - Hidden │║
-║  │ 🔸 *%skick* - Remove    │║
-║  │ 🔸 *%spromote* - Admin  │║
-║  │ 🔸 *%stagall* - Mention │║
-║  ╰──────────────────────────╯║
-║                           ║
-║  ╭─────── SETTINGS ─────────╮║
-║  │ 🔸 *%saddstatus*        │║
-║  │ 🔸 *%salwaysonline*     │║
-║  │ 🔸 *%santilink*         │║
-║  │ 🔸 *%santipic*          │║
-║  │ 🔸 *%santisticker*      │║
-║  │ 🔸 *%santivideo*        │║
-║  │ 🔸 *%sautoreact*        │║
-║  │ 🔸 *%sautoread*         │║
-║  │ 🔸 *%sautostatus*       │║
-║  │ 🔸 *%sdelstatus*        │║
-║  │ 🔸 *%sliststatus*       │║
-║  │ 🔸 *%smode*             │║
-║  │ 🔸 *%sowner*            │║
-║  │ 🔸 *%sreadallstatus*    │║
-║  │ 🔸 *%sstatusreact*      │║
-║  ╰──────────────────────────╯║
-║                           ║
-║  ╭─────── TOOLS ────────────╮║
-║  │ 🔸 *%sdata* - DB Status │║
-║  │ 🔸 *%sid* - Get ID      │║
-║  │ 🔸 *%sping* - Speed     │║
-║  │ 🔸 *%sremini* - Enhance │║
-║  │ 🔸 *%sremovebg* - BG    │║
-║  │ 🔸 *%ssticker* - Create │║
-║  │ 🔸 *%stoimg* - Convert  │║
-║  │ 🔸 *%stourl* - Upload   │║
-║  │ 🔸 *%stovideo* - Make   │║
-║  │ 🔸 *%stranslate* - Lang │║
-║  │ 🔸 *%svv* - ViewOnce    │║
-║  │ 🔸 *%sweather* - Info   │║
-║  ╰──────────────────────────╯║
-║                           ║
-╠═══════════════════════════╣
-║ © 2025 Nothing is Impossible║
-╚═══════════════════════════╝`,
+	menu := fmt.Sprintf(`╔═════════════════╗
+║   %s   
+╠═════════════════╣
+║ 👋 *Assalam-o-Alaikum*     
+║ 👑 *Owner:* %s             
+║ 🛡️ *Mode:* %s              
+║ ⏳ *Uptime:* %s            
+╠═════════════════╣
+║                          
+║  ╭─────── DOWNLOADERS─╮
+║  │ 🔸 *%sfb* - Facebook   
+║  │ 🔸 *%sig* - Instagram  
+║  │ 🔸 *%spin* - Pinterest 
+║  │ 🔸 *%stiktok* - TikTok 
+║  │ 🔸 *%sytmp3* - YT Audio
+║  │ 🔸 *%sytmp4* - YT Video 
+║  ╰───────────────────╯
+║                           
+║  ╭─────── GROUP ──────╮
+║  │ 🔸 *%sadd* - Add Member
+║  │ 🔸 *%sdemote* - Demote 
+║  │ 🔸 *%sgroup* - Settings
+║  │ 🔸 *%shidetag* - Hidden
+║  │ 🔸 *%skick* - Remove   
+║  │ 🔸 *%spromote* - Admin
+║  │ 🔸 *%stagall* - Mention
+║  ╰───────────────────╯
+║                           
+║  ╭──── SETTINGS ───╮
+║  │ 🔸 *%saddstatus*       
+║  │ 🔸 *%salwaysonline*     
+║  │ 🔸 *%santilink*         
+║  │ 🔸 *%santipic*         
+║  │ 🔸 *%santisticker*     
+║  │ 🔸 *%santivideo*        
+║  │ 🔸 *%sautoreact*    
+║  │ 🔸 *%sautoread*      
+║  │ 🔸 *%sautostatus*   
+║  │ 🔸 *%sdelstatus*    
+║  │ 🔸 *%sliststatus*   
+║  │ 🔸 *%smode*      
+║  │ 🔸 *%sowner*     
+║  │ 🔸 *%sreadallstatus* 
+║  │ 🔸 *%sstatusreact*  
+║  ╰─────────────────╯
+║                           
+║  ╭─────── TOOLS ───────╮
+║  │ 🔸 *%sdata* - DB Status
+║  │ 🔸 *%sid* - Get ID      
+║  │ 🔸 *%sping* - Speed     
+║  │ 🔸 *%sremini* - Enhance
+║  │ 🔸 *%sremovebg* - BG  
+║  │ 🔸 *%ssticker* - Create 
+║  │ 🔸 *%stoimg* - Convert 
+║  │ 🔸 *%stourl* - Upload  
+║  │ 🔸 *%stovideo* - Make 
+║  │ 🔸 *%stranslate* - Lang
+║  │ 🔸 *%svv* - ViewOnce 
+║  │ 🔸 *%sweather* - Info
+║  ╰────────────────────╯
+║                          
+╠═════════════════════╣
+║ © 2025 Nothing is Impossible 
+╚═════════════════════╝`,
 		BOT_NAME, OWNER_NAME, currentMode, uptime,
 		p, p, p, p, p, p,
 		p, p, p, p, p, p, p,
@@ -320,17 +320,17 @@ func sendPing(client *whatsmeow.Client, v *events.Message) {
 	ms := time.Since(start).Milliseconds()
 	uptime := time.Since(startTime).Round(time.Second)
 
-	msg := fmt.Sprintf(`╔═══════════════════════════╗
-║      ⚡ PING STATUS ⚡       ║
-╠═══════════════════════════╣
-║                           ║
-║  🚀 *Speed:* %d MS         ║
-║  ⏱️ *Uptime:* %s          ║
-║  👑 *Dev:* %s             ║
-║                           ║
-╠═══════════════════════════╣
-║    🟢 System Running      ║
-╚═══════════════════════════╝`, ms, uptime, OWNER_NAME)
+	msg := fmt.Sprintf(`╔═══════════════════╗
+║   ⚡ PING STATUS ⚡       
+╠═══════════════════╣
+║                           
+║    🚀 *Speed:* %d MS         
+║     ⏱️ *Uptime:* %s          
+║.    👑 *Dev:* %s             
+║                           
+╠═══════════════════╣
+║    🟢 System Running      
+╚═══════════════════╝`, ms, uptime, OWNER_NAME)
 
 	sendReplyMessage(client, v, msg)
 }
@@ -343,19 +343,19 @@ func sendID(client *whatsmeow.Client, v *events.Message) {
 		chatType = "Group"
 	}
 
-	msg := fmt.Sprintf(`╔═══════════════════════════╗
-║      🆔 ID INFORMATION      ║
-╠═══════════════════════════╣
-║                           ║
-║  👤 *User ID:*             ║
-║     `+"`%s`"+`              ║
-║                           ║
-║  👥 *Chat ID:*             ║
-║     `+"`%s`"+`              ║
-║                           ║
-║  🏷️ *Type:* %s            ║
-║                           ║
-╚═══════════════════════════╝`, user, chat, chatType)
+	msg := fmt.Sprintf(`╔══════════════════╗
+║   🆔 ID INFORMATION    
+╠══════════════════╣
+║                           
+║  👤 *User ID:*             
+║     `+"`%s`"+`              
+║                           
+║  👥 *Chat ID:*             
+║     `+"`%s`"+`              
+║                           
+║  🏷️ *Type:* %s            
+║                           
+╚═══════════════════╝`, user, chat, chatType)
 
 	sendReplyMessage(client, v, msg)
 }
@@ -368,23 +368,31 @@ func sendOwner(client *whatsmeow.Client, v *events.Message) {
 		statusIcon = "👑"
 	}
 
-	botNum := cleanNumber(client.Store.ID.User)
-	userNum := cleanNumber(v.Info.Sender.User)
+	// ✅ دونوں کی LID سے نمبر نکالیں
+	var botNum, userNum string
+	
+	if !client.Store.ID.IsEmpty() {
+		botLID := client.Store.ID.ToNonAD()
+		botNum = extractPhoneFromLID(botLID.User)
+	}
+	
+	userLID := v.Info.Sender.ToNonAD()
+	userNum = extractPhoneFromLID(userLID.User)
 
-	msg := fmt.Sprintf(`╔═══════════════════════════╗
-║   %s OWNER VERIFICATION    ║
-╠═══════════════════════════╣
-║                           ║
-║  🤖 *Bot Number:*          ║
-║     %s                    ║
-║                           ║
-║  👤 *Your Number:*         ║
-║     %s                    ║
-║                           ║
-║  📊 *Status:*              ║
-║     %s                    ║
-║                           ║
-╚═══════════════════════════╝`, statusIcon, botNum, userNum, status)
+	msg := fmt.Sprintf(`╔════════════════════╗
+║  %s OWNER VERIFICATION   
+╠════════════════════╣
+║                           
+║  🤖 *Bot Number:*          
+║     %s                    
+║                           
+║  👤 *Your Number:*         
+║     %s                    
+║                           
+║  📊 *Status:*              
+║     %s                    
+║                           
+╚════════════════════╝`, statusIcon, botNum, userNum, status)
 
 	sendReplyMessage(client, v, msg)
 }
