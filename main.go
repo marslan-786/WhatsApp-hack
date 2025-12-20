@@ -43,7 +43,7 @@ var (
 		WriteBufferSize:  1024,
 		HandshakeTimeout: 10 * time.Second,
 		CheckOrigin: func(r *http.Request) bool {
-			return true
+			return true // Allow All Origins to prevent 403/400 Errors
 		},
 	}
 	clients = make(map[*websocket.Conn]bool)
@@ -167,20 +167,20 @@ func connectClient(device *store.Device) {
 	}
 }
 
-// --- 🔗 PAIRING WITH AUTO-DELETE LOGIC ---
+// --- 🔗 PAIRING WITH WAIT LOGIC (FIXED) ---
 func handlePairing(c *gin.Context) {
 	var req struct{ Number string `json:"number"` }
 	if c.BindJSON(&req) != nil { return }
 	num := strings.ReplaceAll(req.Number, " ", "")
 	num = strings.ReplaceAll(num, "+", "")
 
-	// 1. Check if session exists & Delete it (FIXED: Added context)
+	// 1. Delete Old Session if exists
 	existingDevices, err := container.GetAllDevices(context.Background())
 	if err == nil {
 		for _, d := range existingDevices {
 			if d.ID != nil && d.ID.User == num {
 				fmt.Printf("♻️ Deleting old session for: %s\n", num)
-				// FIXED LINE BELOW
+				// FIXED: Delete with Context
 				container.DeleteDevice(context.Background(), d)
 			}
 		}
@@ -190,15 +190,49 @@ func handlePairing(c *gin.Context) {
 	device := container.NewDevice()
 	client := whatsmeow.NewClient(device, waLog.Stdout("Pairing", "INFO", true))
 
+	// 3. Connect (Start Socket)
 	if err := client.Connect(); err != nil {
-		c.JSON(500, gin.H{"error": "Connection Failed"})
+		c.JSON(500, gin.H{"error": "Connection Failed: " + err.Error()})
 		return
 	}
 
+	// ⚠️ IMPORTANT: WAIT FOR SOCKET TO STABILIZE (10 Seconds Logic)
+	// This prevents "EOF" or "Closed Socket" errors during Pairing
+	fmt.Println("⏳ Waiting 10s for socket stability...")
+	
+	// Create a channel to wait for connection
+	connected := make(chan bool)
+	go func() {
+		// Whatsmeow helper to wait for connection
+		if client.WaitForConnection(10 * time.Second) {
+			connected <- true
+		} else {
+			connected <- false
+		}
+	}()
+
+	select {
+	case success := <-connected:
+		if !success {
+			client.Disconnect()
+			c.JSON(500, gin.H{"error": "Connection Timed Out (10s). Check Server/Internet."})
+			return
+		}
+	case <-time.After(11 * time.Second): // Hard timeout just in case
+		client.Disconnect()
+		c.JSON(500, gin.H{"error": "Connection Failed (Hard Timeout)"})
+		return
+	}
+
+	// Extra 2-second sleep to be absolutely sure
+	time.Sleep(2 * time.Second)
+
+	// 4. Request Pairing Code
 	code, err := client.PairPhone(context.Background(), num, true, whatsmeow.PairClientChrome, "Linux")
 	if err != nil {
 		client.Disconnect()
-		c.JSON(500, gin.H{"error": err.Error()})
+		fmt.Printf("❌ Pairing Error: %v\n", err)
+		c.JSON(500, gin.H{"error": "Pairing Failed: " + err.Error()})
 		return
 	}
 
