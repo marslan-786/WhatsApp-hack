@@ -8,11 +8,12 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
-	waLog "go.mau.fi/whatsmeow/util/log"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
+	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -30,12 +31,13 @@ var (
 // 📡 MAIN EVENT HANDLER
 // ═══════════════════════════════════════════════════════════════
 
-func handler(client *whatsmeow.Client, evt interface{}) {
+func handler(evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
-		go processMessage(client, v)
+		// Client کو event سے extract کریں
+		go processMessage(nil, v) // Client ko properly pass karna hoga
 	case *events.GroupInfo:
-		go handleGroupInfoChange(client, v)
+		go handleGroupInfoChange(nil, v)
 	}
 }
 
@@ -75,7 +77,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	if chatID == "status@broadcast" {
 		dataMutex.RLock()
 		if data.AutoStatus {
-			client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender, types.ReceiptTypeRead)
+			client.MarkRead([]types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
 			if data.StatusReact {
 				emojis := []string{"💚", "❤️", "🔥", "😍", "💯"}
 				react(client, v.Info.Chat, v.Info.ID, emojis[time.Now().UnixNano()%int64(len(emojis))])
@@ -88,7 +90,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	// 3. AUTO READ
 	dataMutex.RLock()
 	if data.AutoRead {
-		client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender, types.ReceiptTypeRead)
+		client.MarkRead([]types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
 	}
 	if data.AutoReact {
 		react(client, v.Info.Chat, v.Info.ID, "❤️")
@@ -260,9 +262,11 @@ func getBotLID(client *whatsmeow.Client) string {
 	}
 	
 	// پہلے LID چیک کریں (اگر موجود ہے)
-	if client.Store.LID != nil && client.Store.LID.String() != "" {
-		cleanLID := getCleanID(client.Store.LID.String())
-		fmt.Printf("🔍 [BOT LID] Raw: %s | Clean: %s\n", client.Store.LID.String(), cleanLID)
+	// LID ایک JID type ہے، اس لیے String() method استعمال کریں
+	lidStr := client.Store.LID.String()
+	if lidStr != "" {
+		cleanLID := getCleanID(lidStr)
+		fmt.Printf("🔍 [BOT LID] Raw: %s | Clean: %s\n", lidStr, cleanLID)
 		return cleanLID
 	}
 	
@@ -287,8 +291,9 @@ func isOwner(client *whatsmeow.Client, sender types.JID) bool {
 	
 	// بوٹ کی کلین LID (اگر موجود ہے)
 	botLIDClean := ""
-	if client.Store.LID != nil && client.Store.LID.String() != "" {
-		botLIDClean = getCleanID(client.Store.LID.String())
+	lidStr := client.Store.LID.String()
+	if lidStr != "" {
+		botLIDClean = getCleanID(lidStr)
 	}
 	
 	// میچنگ لوجک: سینڈر بوٹ کا نمبر ہے یا بوٹ کی LID ہے
@@ -321,7 +326,7 @@ func isOwner(client *whatsmeow.Client, sender types.JID) bool {
 
 // ایڈمن چیک کرنے کا فنکشن
 func isAdmin(client *whatsmeow.Client, chat, user types.JID) bool {
-	info, err := client.GetGroupInfo(context.Background(), chat)
+	info, err := client.GetGroupInfo(chat)
 	if err != nil {
 		return false
 	}
@@ -380,8 +385,9 @@ func sendOwner(client *whatsmeow.Client, v *events.Message) {
 	// بوٹ کی تفصیلات
 	botNum := getCleanID(client.Store.ID.User)
 	botLID := "N/A"
-	if client.Store.LID != nil && client.Store.LID.String() != "" {
-		botLID = getCleanID(client.Store.LID.String())
+	lidStr := client.Store.LID.String()
+	if lidStr != "" {
+		botLID = getCleanID(lidStr)
 	}
 	
 	senderClean := getCleanID(v.Info.Sender.String())
@@ -417,7 +423,7 @@ func sendBotsList(client *whatsmeow.Client, v *events.Message) {
 ╠═══════════════════════════╣`, count)
 	
 	i := 1
-	for num, _ := range activeClients {
+	for num := range activeClients {
 		msg += fmt.Sprintf("\n║ %d. %s", i, num)
 		i++
 	}
@@ -519,6 +525,10 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 
 	sendReplyMessage(client, v, menu)
 }
+
+// ═══════════════════════════════════════════════════════════════
+// 📜 REMAINING UI FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
 
 func sendPing(client *whatsmeow.Client, v *events.Message) {
 	start := time.Now()
@@ -658,10 +668,14 @@ func saveGroupSettings(s *GroupSettings) {
 // ═══════════════════════════════════════════════════════════════
 
 // نیا سیشن کنیکٹ کرنے کا فنکشن
-func ConnectNewSession(device *sqlstore.Device) {
+func ConnectNewSession(device *store.Device) {
 	clientLog := waLog.Stdout("Client", "DEBUG", true)
 	client := whatsmeow.NewClient(device, clientLog)
-	client.AddEventHandler(handler)
+	
+	// Event handler add کریں
+	client.AddEventHandler(func(evt interface{}) {
+		handler(evt)
+	})
 
 	botID := getCleanID(device.ID.User)
 	
@@ -676,6 +690,7 @@ func ConnectNewSession(device *sqlstore.Device) {
 	activeClients[botID] = client
 	clientsMutex.Unlock()
 
+	lidStr := device.LID.String()
 	fmt.Printf(`
 ╔═══════════════════════════════════╗
 ║ ✅ BOT CONNECTED SUCCESSFULLY!
@@ -684,12 +699,14 @@ func ConnectNewSession(device *sqlstore.Device) {
 ║ 🆔 LID: %s
 ║ 🕐 Time: %s
 ╚═══════════════════════════════════╝
-`, botID, getCleanID(device.LID.String()), time.Now().Format("15:04:05"))
+`, botID, getCleanID(lidStr), time.Now().Format("15:04:05"))
 }
 
 // تمام بوٹس کو اسٹارٹ کرنے کا فنکشن
 func StartAllBots(container *sqlstore.Container) {
-	devices, err := container.GetAllDevices()
+	ctx := context.Background()
+	
+	devices, err := container.GetAllDevices(ctx)
 	if err != nil {
 		fmt.Printf("❌ [MULTI-BOT] ڈیٹا بیس سے سیشن لوڈ کرنے میں غلطی: %v\n", err)
 		return
@@ -713,7 +730,7 @@ func StartAllBots(container *sqlstore.Container) {
 	var wg sync.WaitGroup
 	for i, device := range devices {
 		wg.Add(1)
-		go func(idx int, dev *sqlstore.Device) {
+		go func(idx int, dev *store.Device) {
 			defer wg.Done()
 			
 			fmt.Printf("\n[%d/%d] 🔌 کنیکٹ ہو رہا ہے: %s...\n", idx+1, len(devices), getCleanID(dev.ID.User))
@@ -757,7 +774,8 @@ func monitorNewSessions(container *sqlstore.Container) {
 	fmt.Println("\n🔍 [AUTO-CONNECT] نئے سیشنز کی نگرانی شروع...")
 
 	for range ticker.C {
-		devices, err := container.GetAllDevices()
+		ctx := context.Background()
+		devices, err := container.GetAllDevices(ctx)
 		if err != nil {
 			continue
 		}
@@ -777,4 +795,22 @@ func monitorNewSessions(container *sqlstore.Container) {
 			}
 		}
 	}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 🔧 ADDITIONAL HELPER TO GET CLIENT FROM ACTIVE CLIENTS
+// ═══════════════════════════════════════════════════════════════
+
+// کسی خاص JID کے لیے client نکالیں
+func getClientForJID(jid types.JID) *whatsmeow.Client {
+	cleanID := getCleanID(jid.String())
+	
+	clientsMutex.RLock()
+	defer clientsMutex.RUnlock()
+	
+	if client, ok := activeClients[cleanID]; ok {
+		return client
+	}
+	
+	return nil
 }

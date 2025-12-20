@@ -66,13 +66,13 @@ func handleSticker(client *whatsmeow.Client, v *events.Message) {
 func handleToImg(client *whatsmeow.Client, v *events.Message) {
 	react(client, v.Info.Chat, v.Info.ID, "🖼️")
 	
-		errMsg := `╔══════════════════╗
+	msg := `╔══════════════════╗
 ║ 🖼️ IMAGE CONVERSION      
 ╠══════════════════╣
 ║ ⏳ Converting to image... 
 ║       Please wait...           
 ╚══════════════════╝`
-	replyMessage(client, v, msg)
+	replyMessage(client, v, msg)  // اب msg صحیح ہے
 
 	data, err := downloadMedia(client, v.Message)
 	if err != nil {
