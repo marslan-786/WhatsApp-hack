@@ -340,95 +340,87 @@ func sendID(client *whatsmeow.Client, v *events.Message) {
 
 // ==================== 🔥 CRITICAL: OWNER LOGIC ====================
 
-// ✅ STEP 1: Extract clean phone number from LID User field
-func extractPhoneFromLID(lidUser string) string {
-	if lidUser == "" {
+// ✅ Extract LID User (this handles both @lid and @s.whatsapp.net)
+func extractLIDUser(jid types.JID) string {
+	if jid.IsEmpty() {
 		return "unknown"
 	}
 	
-	// Remove device ID (e.g., "923001234567:10" → "923001234567")
-	if strings.Contains(lidUser, ":") {
-		lidUser = strings.Split(lidUser, ":")[0]
+	// ✅ Return raw User field - yeh already LID format mein hai
+	user := jid.User
+	
+	// Remove device ID if present (e.g., "184645610135709:10" or "923017552805:61")
+	if strings.Contains(user, ":") {
+		user = strings.Split(user, ":")[0]
 	}
 	
-	// Remove + if present
-	lidUser = strings.ReplaceAll(lidUser, "+", "")
+	// Clean up
+	user = strings.ReplaceAll(user, "+", "")
+	user = strings.TrimSpace(user)
 	
-	return strings.TrimSpace(lidUser)
+	return user
 }
 
-// ✅ STEP 2: Force bot to extract its OWN LID number
-func getBotLIDNumber(client *whatsmeow.Client) string {
+// ✅ NEW: Get bot's ACTUAL LID (from Store.ID directly as LID)
+func getBotLID(client *whatsmeow.Client) string {
 	if client.Store.ID == nil || client.Store.ID.IsEmpty() {
 		fmt.Printf("❌ Bot Store.ID is nil or empty\n")
 		return "unknown"
 	}
 	
-	// ✅ FORCE: Bot MUST convert itself to LID first
-	botLID := client.Store.ID.ToNonAD()
+	// ✅ CRITICAL: Bot's Store.ID.User already contains LID-like format
+	// Format: "923017552805:61" where :61 is device ID
+	botLIDUser := extractLIDUser(*client.Store.ID)
 	
-	// ✅ Debug log
 	fmt.Printf("🤖 Bot LID Extraction:\n")
-	fmt.Printf("   Original JID: %s\n", client.Store.ID.String())
-	fmt.Printf("   Forced LID: %s\n", botLID.String())
-	fmt.Printf("   LID.User: %s\n", botLID.User)
+	fmt.Printf("   Original Store.ID: %s\n", client.Store.ID.String())
+	fmt.Printf("   Store.ID.User: %s\n", client.Store.ID.User)
+	fmt.Printf("   Extracted LID: %s\n", botLIDUser)
 	
-	// ✅ Extract ONLY the phone number
-	botNumber := extractPhoneFromLID(botLID.User)
-	fmt.Printf("   Final Number: %s\n", botNumber)
-	
-	return botNumber
+	return botLIDUser
 }
 
-// ✅ STEP 3: Extract sender's phone number from their JID/LID
-func getSenderPhoneNumber(sender types.JID) string {
+// ✅ Get sender's LID (they send with @lid format)
+func getSenderLID(sender types.JID) string {
 	if sender.IsEmpty() {
 		return "unknown"
 	}
 	
-	// ✅ Sender might be linked device, convert to LID
-	senderLID := sender.ToNonAD()
+	// ✅ Sender ka JID already @lid format mein hai
+	senderLIDUser := extractLIDUser(sender)
 	
-	fmt.Printf("👤 Sender Extraction:\n")
-	fmt.Printf("   Original JID: %s\n", sender.String())
-	fmt.Printf("   Converted LID: %s\n", senderLID.String())
-	fmt.Printf("   LID.User: %s\n", senderLID.User)
+	fmt.Printf("👤 Sender LID Extraction:\n")
+	fmt.Printf("   Original Sender JID: %s\n", sender.String())
+	fmt.Printf("   Sender.User: %s\n", sender.User)
+	fmt.Printf("   Extracted LID: %s\n", senderLIDUser)
 	
-	senderNumber := extractPhoneFromLID(senderLID.User)
-	fmt.Printf("   Final Number: %s\n", senderNumber)
-	
-	return senderNumber
+	return senderLIDUser
 }
 
-// ✅ STEP 4: UNIVERSAL Owner check - NO hardcoding
+// ✅ FINAL: Owner check - Compare LIDs directly
 func isOwner(client *whatsmeow.Client, sender types.JID) bool {
-	// ✅ Bot apni LID number nikale (FORCED)
-	botNum := getBotLIDNumber(client)
+	// ✅ Bot ki LID
+	botLID := getBotLID(client)
 	
-	// ✅ Sender ki number nikalo
-	senderNum := getSenderPhoneNumber(sender)
+	// ✅ Sender ki LID
+	senderLID := getSenderLID(sender)
 	
-	// ✅ Final comparison: ONLY numbers, NO JID/LID strings
-	isMatch := (botNum == senderNum && botNum != "unknown")
+	// ✅ Direct LID comparison
+	isMatch := (botLID == senderLID && botLID != "unknown")
 	
 	fmt.Printf("🎯 Owner Check Result:\n")
-	fmt.Printf("   Bot Number: %s\n", botNum)
-	fmt.Printf("   Sender Number: %s\n", senderNum)
+	fmt.Printf("   Bot LID: %s\n", botLID)
+	fmt.Printf("   Sender LID: %s\n", senderLID)
 	fmt.Printf("   Match: %v\n", isMatch)
 	fmt.Printf("   ════════════════════\n")
 	
 	return isMatch
 }
 
-// ✅ UPDATED: sendOwner with better display
+// ✅ Display owner info
 func sendOwner(client *whatsmeow.Client, v *events.Message) {
-	// ✅ Bot ki LID number
-	botNum := getBotLIDNumber(client)
-	
-	// ✅ Sender ki number
-	senderNum := getSenderPhoneNumber(v.Info.Sender)
-	
-	// ✅ Check ownership
+	botLID := getBotLID(client)
+	senderLID := getSenderLID(v.Info.Sender)
 	isOwn := isOwner(client, v.Info.Sender)
 	
 	status := "❌ NOT Owner"
@@ -444,7 +436,7 @@ func sendOwner(client *whatsmeow.Client, v *events.Message) {
 ║ 🤖 Bot: %s
 ║ 👤 You: %s
 ║ 📊 %s
-╚════════════════╝`, statusIcon, botNum, senderNum, status)
+╚════════════════╝`, statusIcon, botLID, senderLID, status)
 
 	sendReplyMessage(client, v, msg)
 }
@@ -507,7 +499,6 @@ func getText(m *waProto.Message) string {
 }
 
 func canExecute(client *whatsmeow.Client, v *events.Message, cmd string) bool {
-	// ✅ Owner check uses LID logic
 	if isOwner(client, v.Info.Sender) {
 		return true
 	}
@@ -532,12 +523,11 @@ func isAdmin(client *whatsmeow.Client, chat, user types.JID) bool {
 		return false
 	}
 
-	// ✅ Use LID-based number comparison
-	userNum := getSenderPhoneNumber(user)
+	userLID := getSenderLID(user)
 	
 	for _, p := range info.Participants {
-		participantNum := getSenderPhoneNumber(p.JID)
-		if participantNum == userNum && (p.IsAdmin || p.IsSuperAdmin) {
+		participantLID := getSenderLID(p.JID)
+		if participantLID == userLID && (p.IsAdmin || p.IsSuperAdmin) {
 			return true
 		}
 	}
