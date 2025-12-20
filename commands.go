@@ -67,9 +67,8 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	prefix := data.Prefix
 	dataMutex.RUnlock()
 
-	// ✅ FIX: Only process if message starts with prefix or is a known command
 	if !strings.HasPrefix(body, prefix) && !isKnownCommand(body) {
-		return // Ignore non-commands
+		return
 	}
 
 	cmd := strings.ToLower(body)
@@ -95,31 +94,23 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 
 	fullArgs := strings.Join(args, " ")
 	
-	// ✅ FIX: Only log valid commands
 	fmt.Printf("📩 CMD: %s | User: %s | Chat: %s\n", cmd, v.Info.Sender.User, v.Info.Chat.User)
 
 	switch cmd {
-	// مینیو سسٹم
 	case "menu", "help", "list":
 		react(client, v.Info.Chat, v.Info.ID, "📜")
 		sendMenu(client, v)
-
 	case "ping":
 		react(client, v.Info.Chat, v.Info.ID, "⚡")
 		sendPing(client, v)
-
 	case "id":
 		react(client, v.Info.Chat, v.Info.ID, "🆔")
 		sendID(client, v)
-
 	case "owner":
 		react(client, v.Info.Chat, v.Info.ID, "👑")
 		sendOwner(client, v)
-
 	case "data":
 		replyMessage(client, v, "╭═══════════════════╮\n┃   📂 DATA STATUS \n├═══════════════════┤\n┃ ✅ Data Base Coming╰═══════════════════╯")
-
-	// سیٹنگز
 	case "alwaysonline":
 		toggleAlwaysOnline(client, v)
 	case "autoread":
@@ -142,8 +133,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleSetPrefix(client, v, args)
 	case "mode":
 		handleMode(client, v, args)
-
-	// سیکورٹی
 	case "antilink":
 		startSecuritySetup(client, v, "antilink")
 	case "antipic":
@@ -152,8 +141,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		startSecuritySetup(client, v, "antivideo")
 	case "antisticker":
 		startSecuritySetup(client, v, "antisticker")
-
-	// گروپ
 	case "kick":
 		handleKick(client, v, args)
 	case "add":
@@ -170,8 +157,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleGroup(client, v, args)
 	case "del", "delete":
 		handleDelete(client, v)
-
-	// ڈاؤن لوڈرز
 	case "tiktok", "tt":
 		handleTikTok(client, v, fullArgs)
 	case "fb", "facebook":
@@ -184,8 +169,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleYouTubeMP3(client, v, fullArgs)
 	case "ytmp4":
 		handleYouTubeMP4(client, v, fullArgs)
-
-	// ٹولز
 	case "sticker", "s":
 		handleSticker(client, v)
 	case "toimg":
@@ -207,7 +190,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 }
 
-// ✅ NEW: Check if message is a known command
 func isKnownCommand(text string) bool {
 	commands := []string{
 		"menu", "help", "list", "ping", "id", "owner", "data",
@@ -369,15 +351,8 @@ func sendOwner(client *whatsmeow.Client, v *events.Message) {
 	}
 
 	// ✅ دونوں کی LID سے نمبر نکالیں
-	var botNum, userNum string
-	
-	if !client.Store.ID.IsEmpty() {
-		botLID := client.Store.ID.ToNonAD()
-		botNum = extractPhoneFromLID(botLID.User)
-	}
-	
-	userLID := v.Info.Sender.ToNonAD()
-	userNum = extractPhoneFromLID(userLID.User)
+	botNum := getLIDNumber(client.Store.ID)
+	userNum := getLIDNumber(v.Info.Sender)
 
 	msg := fmt.Sprintf(`╔════════════════════╗
 ║  %s OWNER VERIFICATION   
@@ -454,29 +429,53 @@ func getText(m *waProto.Message) string {
 	return ""
 }
 
+// ✅ LID سے نمبر نکالنے کا main function
+func getLIDNumber(jid *types.JID) string {
+	if jid == nil || jid.IsEmpty() {
+		return "unknown"
+	}
+	
+	// LID استعمال کریں
+	lid := jid.ToNonAD()
+	return extractPhoneFromLID(lid.User)
+}
+
+// ✅ LID User سے صرف نمبر extract کرنا
+func extractPhoneFromLID(lidUser string) string {
+	// LID format: "923001234567" یا "923001234567:10"
+	// : سے پہلے والا حصہ لو (device ID ہٹا دو)
+	if strings.Contains(lidUser, ":") {
+		lidUser = strings.Split(lidUser, ":")[0]
+	}
+	
+	// + ہٹا دو
+	lidUser = strings.ReplaceAll(lidUser, "+", "")
+	
+	return strings.TrimSpace(lidUser)
+}
+
+// ✅ UPDATED: Owner check اب LID استعمال کرتا ہے
 func isOwner(client *whatsmeow.Client, sender types.JID) bool {
-	if client.Store.ID == nil {
+	if client.Store.ID == nil || client.Store.ID.IsEmpty() {
 		return false
 	}
 
-	botNum := cleanNumber(client.Store.ID.User)
-	senderNum := cleanNumber(sender.User)
+	// ✅ دونوں کی LID سے نمبر نکالیں
+	botNum := getLIDNumber(client.Store.ID)
+	senderNum := getLIDNumber(&sender)
+
+	fmt.Printf("🔍 Owner Check (LID) - Bot: %s | Sender: %s | Match: %v\n", botNum, senderNum, botNum == senderNum)
 
 	return botNum == senderNum
 }
 
+// ✅ Backward compatibility - پرانا function
 func cleanNumber(num string) string {
-	num = strings.ReplaceAll(num, "+", "")
-	if strings.Contains(num, ":") {
-		num = strings.Split(num, ":")[0]
-	}
-	if strings.Contains(num, "@") {
-		num = strings.Split(num, "@")[0]
-	}
-	return num
+	return extractPhoneFromLID(num)
 }
 
 func canExecute(client *whatsmeow.Client, v *events.Message, cmd string) bool {
+	// ✅ Owner check اب LID استعمال کرتا ہے
 	if isOwner(client, v.Info.Sender) {
 		return true
 	}
@@ -501,15 +500,18 @@ func isAdmin(client *whatsmeow.Client, chat, user types.JID) bool {
 		return false
 	}
 
+	// ✅ LID comparison استعمال کریں
+	userNum := getLIDNumber(&user)
+	
 	for _, p := range info.Participants {
-		if p.JID.User == user.User && (p.IsAdmin || p.IsSuperAdmin) {
+		participantNum := getLIDNumber(&p.JID)
+		if participantNum == userNum && (p.IsAdmin || p.IsSuperAdmin) {
 			return true
 		}
 	}
 	return false
 }
 
-// ✅ FIX: Default mode is now PUBLIC
 func getGroupSettings(id string) *GroupSettings {
 	cacheMutex.RLock()
 	if s, ok := groupCache[id]; ok {
@@ -520,7 +522,7 @@ func getGroupSettings(id string) *GroupSettings {
 
 	s := &GroupSettings{
 		ChatID:         id,
-		Mode:           "public", // ✅ FIXED: Default is PUBLIC
+		Mode:           "public",
 		Antilink:       false,
 		AntilinkAdmin:  true,
 		AntilinkAction: "delete",
