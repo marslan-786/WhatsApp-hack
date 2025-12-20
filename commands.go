@@ -212,10 +212,17 @@ func sendMenu(client *whatsmeow.Client, chat types.JID) {
 	p := data.Prefix
 	dataMutex.RUnlock()
 	
+	// FIXED: Dynamic Mode Logic
+	s := getGroupSettings(chat.String())
+	currentMode := strings.ToUpper(s.Mode)
+	if !strings.Contains(chat.String(), "@g.us") {
+		currentMode = "PRIVATE CHAT"
+	}
+	
 	menu := makeCard("⋆ BOT ⋆", fmt.Sprintf(`
 👋 *Assalam-o-Alaikum*
 👑 *Owner:* %s
-🛡️ *Mode:* PUBLIC
+🛡️ *Mode:* %s
 ⏳ *Uptime:* %s
 
 ╭━━〔 *DOWNLOADERS* 〕━━┈
@@ -271,7 +278,7 @@ func sendMenu(client *whatsmeow.Client, chat types.JID) {
 ╰━━━━━━━━━━━━━━━━━━┈
 
 © 2025 Nothing is Impossible`, 
-	OWNER_NAME, uptime,
+	OWNER_NAME, currentMode, uptime,
 	p, p, p, p, p, p,
 	p, p, p, p, p, p, p,
 	p, p, p, p, p, p, p, p, p, p, p, p, p, p, p,
@@ -288,11 +295,9 @@ func toggleGlobal(client *whatsmeow.Client, v *events.Message, key string) {
 	case "alwaysonline": 
 		data.AlwaysOnline = !data.AlwaysOnline
 		if data.AlwaysOnline { 
-			// FIXED: Added context.Background()
 			client.SendPresence(context.Background(), types.PresenceAvailable)
 			status = "ON 🟢" 
 		} else { 
-			// FIXED: Added context.Background()
 			client.SendPresence(context.Background(), types.PresenceUnavailable)
 		}
 	case "autoread": data.AutoRead = !data.AutoRead; if data.AutoRead { status = "ON 🟢" }
@@ -421,7 +426,6 @@ func handleViewOnce(client *whatsmeow.Client, chat types.JID, msg *waProto.Messa
 	if quoted.ImageMessage != nil || (quoted.ViewOnceMessage != nil && quoted.ViewOnceMessage.Message.ImageMessage != nil) {
 		up, _ := client.Upload(context.Background(), data, whatsmeow.MediaImage)
 		
-		// FIXED: URL Capitalization and SHA Capitalization
 		client.SendMessage(context.Background(), chat, &waProto.Message{ImageMessage: &waProto.ImageMessage{
 			URL: proto.String(up.URL), 
 			DirectPath: proto.String(up.DirectPath), 
@@ -433,7 +437,6 @@ func handleViewOnce(client *whatsmeow.Client, chat types.JID, msg *waProto.Messa
 	} else {
 		up, _ := client.Upload(context.Background(), data, whatsmeow.MediaVideo)
 		
-		// FIXED: URL Capitalization and SHA Capitalization
 		client.SendMessage(context.Background(), chat, &waProto.Message{VideoMessage: &waProto.VideoMessage{
 			URL: proto.String(up.URL), 
 			DirectPath: proto.String(up.DirectPath), 
@@ -454,7 +457,6 @@ func stickerToVideo(client *whatsmeow.Client, chat types.JID, msg *waProto.Messa
 	d, _ := ioutil.ReadFile("out.mp4")
 	up, _ := client.Upload(context.Background(), d, whatsmeow.MediaVideo)
 	
-	// FIXED: URL Capitalization and SHA Capitalization
 	client.SendMessage(context.Background(), chat, &waProto.Message{VideoMessage: &waProto.VideoMessage{
 		URL: proto.String(up.URL), 
 		DirectPath: proto.String(up.DirectPath), 
@@ -505,7 +507,6 @@ func reply(client *whatsmeow.Client, chat types.JID, q *waProto.Message, text st
 }
 func react(client *whatsmeow.Client, chat types.JID, q *waProto.Message, e string) {
 	if q == nil { return }
-	// Reaction code omitted for brevity as per previous request/limits
 }
 func getText(m *waProto.Message) string {
 	if m.Conversation != nil { return *m.Conversation }
@@ -535,8 +536,6 @@ func handleMode(client *whatsmeow.Client, v *events.Message, args []string) {
 
 func dlTikTok(client *whatsmeow.Client, chat types.JID, url string, msg *waProto.Message) {
 	react(client, chat, msg, "🎵"); type R struct { Data struct { Play string `json:"play"` } `json:"data"` }; var r R; getJson("https://www.tikwm.com/api/?url="+url, &r)
-	
-	// FIXED: URL Capitalization and SHA Capitalization in sendVideo function call
 	if r.Data.Play != "" { sendVideo(client, chat, r.Data.Play, "TikTok") }
 }
 func dlFacebook(client *whatsmeow.Client, chat types.JID, url string, msg *waProto.Message) {
@@ -559,7 +558,6 @@ func makeSticker(client *whatsmeow.Client, chat types.JID, msg *waProto.Message)
 	react(client, chat, msg, "🎨"); d, _ := downloadMedia(client, msg); ioutil.WriteFile("t.jpg", d, 0644); exec.Command("ffmpeg", "-y", "-i", "t.jpg", "-vcodec", "libwebp", "out.webp").Run(); b, _ := ioutil.ReadFile("out.webp")
 	up, _ := client.Upload(context.Background(), b, whatsmeow.MediaImage); 
 	
-	// FIXED: URL Capitalization and SHA Capitalization
 	client.SendMessage(context.Background(), chat, &waProto.Message{StickerMessage: &waProto.StickerMessage{
 		URL: proto.String(up.URL), 
 		DirectPath: proto.String(up.DirectPath), 
@@ -573,7 +571,6 @@ func stickerToImg(client *whatsmeow.Client, chat types.JID, msg *waProto.Message
 	react(client, chat, msg, "🖼️"); d, _ := downloadMedia(client, msg); ioutil.WriteFile("t.webp", d, 0644); exec.Command("ffmpeg", "-y", "-i", "t.webp", "out.png").Run(); b, _ := ioutil.ReadFile("out.png")
 	up, _ := client.Upload(context.Background(), b, whatsmeow.MediaImage); 
 	
-	// FIXED: URL Capitalization and SHA Capitalization
 	client.SendMessage(context.Background(), chat, &waProto.Message{ImageMessage: &waProto.ImageMessage{
 		URL: proto.String(up.URL), 
 		DirectPath: proto.String(up.DirectPath), 
@@ -604,15 +601,30 @@ func sendPing(client *whatsmeow.Client, chat types.JID, msg *waProto.Message) {
 }
 func getJson(url string, t interface{}) error { r, err := http.Get(url); if err!=nil{return err}; defer r.Body.Close(); return json.NewDecoder(r.Body).Decode(t) }
 func downloadMedia(client *whatsmeow.Client, m *waProto.Message) ([]byte, error) {
-	var d *waProto.ImageMessage; if m.ImageMessage != nil { d = m.ImageMessage }; if m.ExtendedTextMessage != nil && m.ExtendedTextMessage.ContextInfo != nil { q := m.ExtendedTextMessage.ContextInfo.QuotedMessage; if q != nil { if q.ImageMessage != nil { d = q.ImageMessage } else if q.StickerMessage != nil { return client.DownloadAny(q.StickerMessage) } } }; if d == nil { return nil, fmt.Errorf("no media") }; return client.Download(d)
+	// FIXED: Updated Download Logic for latest WhatsMeow
+	var d whatsmeow.DownloadableMessage
+	if m.ImageMessage != nil {
+		d = m.ImageMessage
+	} else if m.VideoMessage != nil {
+		d = m.VideoMessage
+	} else if m.DocumentMessage != nil {
+		d = m.DocumentMessage
+	} else if m.StickerMessage != nil {
+		d = m.StickerMessage
+	} else if m.ExtendedTextMessage != nil && m.ExtendedTextMessage.ContextInfo != nil {
+		q := m.ExtendedTextMessage.ContextInfo.QuotedMessage
+		if q != nil {
+			if q.ImageMessage != nil { d = q.ImageMessage } else if q.VideoMessage != nil { d = q.VideoMessage } else if q.StickerMessage != nil { d = q.StickerMessage }
+		}
+	}
+	if d == nil { return nil, fmt.Errorf("no media") }
+	return client.Download(context.Background(), d)
 }
 func uploadToCatbox(d []byte) string {
 	b := new(bytes.Buffer); w := multipart.NewWriter(b); p, _ := w.CreateFormFile("fileToUpload", "f.jpg"); p.Write(d); w.WriteField("reqtype", "fileupload"); w.Close(); r, _ := http.Post("https://catbox.moe/user/api.php", w.FormDataContentType(), b); res, _ := ioutil.ReadAll(r.Body); return string(res)
 }
 func sendVideo(client *whatsmeow.Client, chat types.JID, url, c string) {
 	r, _ := http.Get(url); d, _ := ioutil.ReadAll(r.Body); up, _ := client.Upload(context.Background(), d, whatsmeow.MediaVideo); 
-	
-	// FIXED: URL Capitalization and SHA Capitalization
 	client.SendMessage(context.Background(), chat, &waProto.Message{VideoMessage: &waProto.VideoMessage{
 		URL: proto.String(up.URL), 
 		DirectPath: proto.String(up.DirectPath), 
@@ -625,8 +637,6 @@ func sendVideo(client *whatsmeow.Client, chat types.JID, url, c string) {
 }
 func sendImage(client *whatsmeow.Client, chat types.JID, url, c string) {
 	r, _ := http.Get(url); d, _ := ioutil.ReadAll(r.Body); up, _ := client.Upload(context.Background(), d, whatsmeow.MediaImage); 
-	
-	// FIXED: URL Capitalization and SHA Capitalization
 	client.SendMessage(context.Background(), chat, &waProto.Message{ImageMessage: &waProto.ImageMessage{
 		URL: proto.String(up.URL), 
 		DirectPath: proto.String(up.DirectPath), 
@@ -639,8 +649,6 @@ func sendImage(client *whatsmeow.Client, chat types.JID, url, c string) {
 }
 func sendDoc(client *whatsmeow.Client, chat types.JID, url, n, m string) {
 	r, _ := http.Get(url); d, _ := ioutil.ReadAll(r.Body); up, _ := client.Upload(context.Background(), d, whatsmeow.MediaDocument); 
-	
-	// FIXED: URL Capitalization and SHA Capitalization
 	client.SendMessage(context.Background(), chat, &waProto.Message{DocumentMessage: &waProto.DocumentMessage{
 		URL: proto.String(up.URL), 
 		DirectPath: proto.String(up.DirectPath), 
@@ -653,7 +661,13 @@ func sendDoc(client *whatsmeow.Client, chat types.JID, url, n, m string) {
 }
 func groupAdd(client *whatsmeow.Client, chat types.JID, args []string, isGroup bool) { if !isGroup || len(args) == 0 { return }; jid, _ := types.ParseJID(args[0] + "@s.whatsapp.net"); client.UpdateGroupParticipants(context.Background(), chat, []types.JID{jid}, whatsmeow.ParticipantChangeAdd) }
 func groupAction(client *whatsmeow.Client, chat types.JID, msg *waProto.Message, action string, isGroup bool) {
-	if !isGroup { return }; target := getTarget(msg); if target == nil { return }; var c whatsmeow.ParticipantChange; if action == "remove" { c = whatsmeow.ParticipantChangeRemove } else if action == "promote" { c = whatsmeow.ParticipantChangePromote } else { c = whatsmeow.ParticipantChangeDemote }; client.UpdateGroupParticipants(context.Background(), chat, []types.JID{*target}, c)
+	// FIXED: target declaration and usage
+	if !isGroup { return }
+	target := getTarget(msg)
+	if target == nil { return }
+	var c whatsmeow.ParticipantChange
+	if action == "remove" { c = whatsmeow.ParticipantChangeRemove } else if action == "promote" { c = whatsmeow.ParticipantChangePromote } else { c = whatsmeow.ParticipantChangeDemote }
+	client.UpdateGroupParticipants(context.Background(), chat, []types.JID{*target}, c)
 }
 func groupTagAll(client *whatsmeow.Client, chat types.JID, text string, isGroup bool) { if !isGroup { return }; info, _ := client.GetGroupInfo(context.Background(), chat); mentions := []string{}; out := "📣 *TAG ALL*\n" + text + "\n"; for _, p := range info.Participants { mentions = append(mentions, p.JID.String()); out += "@" + p.JID.User + "\n" }; client.SendMessage(context.Background(), chat, &waProto.Message{ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: proto.String(out), ContextInfo: &waProto.ContextInfo{MentionedJID: mentions}}}) }
 func groupHideTag(client *whatsmeow.Client, chat types.JID, text string, isGroup bool) { if !isGroup { return }; info, _ := client.GetGroupInfo(context.Background(), chat); mentions := []string{}; for _, p := range info.Participants { mentions = append(mentions, p.JID.String()) }; client.SendMessage(context.Background(), chat, &waProto.Message{ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: proto.String(text), ContextInfo: &waProto.ContextInfo{MentionedJID: mentions}}}) }

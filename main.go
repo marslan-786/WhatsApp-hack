@@ -110,7 +110,7 @@ func connectClient(device *store.Device) {
 		// اگر Always Online آن ہے (commands.go سے ڈیٹا لیا گیا)
 		dataMutex.RLock()
 		if data.AlwaysOnline {
-			// FIXED: Added context.Background()
+			// FIXED: Added context.Background() for latest version
 			client.SendPresence(context.Background(), types.PresenceAvailable)
 		}
 		dataMutex.RUnlock()
