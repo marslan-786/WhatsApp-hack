@@ -36,7 +36,7 @@ var (
 )
 
 func main() {
-	fmt.Println("🚀 IMPOSSIBLE BOT | STARTING")
+	fmt.Println("🚀 IMPOSSIBLE BOT | START")
 
 	dbURL := os.Getenv("DATABASE_URL")
 	dbType := "postgres"
@@ -56,7 +56,7 @@ func main() {
 		panic(err)
 	}
 
-	// 🔒 SAFE SESSION ISOLATION (PushName based)
+	// 🔐 SAFE SESSION ISOLATION
 	var device *store.Device
 	devices, _ := container.GetAllDevices(context.Background())
 	for _, d := range devices {
@@ -65,33 +65,36 @@ func main() {
 			break
 		}
 	}
-
 	if device == nil {
 		device = container.NewDevice()
 		device.PushName = BOT_TAG
-		fmt.Println("🆕 New device created")
+		fmt.Println("🆕 New session created")
 	}
 
 	client = whatsmeow.NewClient(device, waLog.Stdout("Client", "INFO", true))
 	client.AddEventHandler(eventHandler)
 
 	if client.Store.ID != nil {
-		err = client.Connect()
-		if err != nil {
-			panic(err)
-		}
+		client.Connect()
 		fmt.Println("✅ Session restored")
 	}
 
-	// Pair API
+	// 🌐 WEB + API
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
-	r.POST("/pair", handlePair)
+
+	// Static website
+	r.StaticFile("/", "./web/index.html")
+
+	// Pair API
+	r.POST("/api/pair", handlePairAPI)
+
 	go r.Run(":8080")
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	<-sig
+	// Shutdown
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	<-c
 	client.Disconnect()
 }
 
@@ -99,7 +102,6 @@ func main() {
 
 func eventHandler(evt interface{}) {
 	switch v := evt.(type) {
-
 	case *events.Message:
 		if v.Info.IsFromMe {
 			return
@@ -107,11 +109,11 @@ func eventHandler(evt interface{}) {
 
 		text := strings.ToLower(strings.TrimSpace(getText(v.Message)))
 
-		switch text {
-		case "#menu":
+		if text == "#menu" {
 			sendMenu(v.Info.Chat)
+		}
 
-		case "#ping":
+		if text == "#ping" {
 			sendPing(v.Info.Chat)
 		}
 	}
@@ -143,9 +145,8 @@ func sendMenu(chat types.JID) {
 				Title: proto.String("COMMANDS"),
 				Rows: []*waProto.ListMessage_Row{
 					{
-						RowID:       proto.String("ping"),
-						Title:       proto.String("Ping"),
-						Description: proto.String("Check latency"),
+						RowID: proto.String("ping"),
+						Title: proto.String("Ping"),
 					},
 				},
 			},
@@ -162,22 +163,20 @@ func sendMenu(chat types.JID) {
 func sendPing(chat types.JID) {
 	start := time.Now()
 	time.Sleep(20 * time.Millisecond)
+
 	ms := time.Since(start).Milliseconds()
 	uptime := time.Since(startTime).Round(time.Second)
 
 	msg := fmt.Sprintf(
-		"╔══════════════════════╗\n"+
-			"║ 🚀 IMPOSSIBLE BOT     ║\n"+
-			"╠══════════════════════╣\n"+
-			"║ 👨‍💻 Dev: %s\n"+
-			"╠══════════════════════╣\n"+
-			"║ ⚡ PING\n"+
-			"║   ┌──────────────┐\n"+
-			"║   │  %d ms       │\n"+
-			"║   └──────────────┘\n"+
-			"╠══════════════════════╣\n"+
-			"║ ⏱ Uptime: %s\n"+
-			"╚══════════════════════╝",
+		"╔══════════════════╗\n"+
+			"║ 🚀 IMPOSSIBLE BOT\n"+
+			"╠══════════════════╣\n"+
+			"║ 👨‍💻 %s\n"+
+			"╠══════════════════╣\n"+
+			"║ ⚡ PING: %d ms\n"+
+			"╠══════════════════╣\n"+
+			"║ ⏱ %s\n"+
+			"╚══════════════════╝",
 		DEV_NAME,
 		ms,
 		uptime,
@@ -188,13 +187,12 @@ func sendPing(chat types.JID) {
 	})
 }
 
-// ================= PAIR =================
+// ================= PAIR API =================
 
-func handlePair(c *gin.Context) {
+func handlePairAPI(c *gin.Context) {
 	var req struct {
 		Number string `json:"number"`
 	}
-
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "invalid request"})
 		return
