@@ -13,15 +13,12 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
-	waLog "go.mau.fi/whatsmeow/util/log"
+	// ✅ waLog امپورٹ یہاں سے ہٹا دیا گیا ہے کیونکہ یہ اس فائل میں استعمال نہیں ہو رہا تھا
 	"google.golang.org/protobuf/proto"
 )
 
-var (
-	activeClients = make(map[string]*whatsmeow.Client)
-	clientsMutex  sync.RWMutex
-	globalClient *whatsmeow.Client
-)
+// ⚡ نوٹ: یہاں سے وہ ڈپلیکیٹ ویری ایبلز (activeClients, clientsMutex وغیرہ) 
+// ہٹا دیئے گئے ہیں کیونکہ وہ اب صرف main.go میں ایک ہی بار ڈیفائن ہوں گے۔
 
 func handler(botClient *whatsmeow.Client, evt interface{}) {
 	// 🛡️ سیف گارڈ: اگر اس بوٹ میں کوئی ایرر آئے تو یہ پورے سسٹم کو کریش نہیں ہونے دے گا
@@ -46,8 +43,6 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 		fmt.Printf("ℹ️ [STATUS] Bot %s: %T\n", botClient.Store.ID.User, v)
 	}
 }
-
-
 
 func isKnownCommand(text string) bool {
 	commands := []string{
@@ -92,12 +87,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	isSetup := false
 	if state, ok := setupMap[senderID]; ok && state.GroupID == chatID { isSetup = true }
 
-	// اگر یہ کمانڈ نہیں ہے تو بوٹ یہیں مر جائے گا (سائنس دانوں کا وقت بچانے کے لئے)
+	// اگر یہ کمانڈ نہیں ہے تو بوٹ یہیں مر جائے گا
 	if !strings.HasPrefix(bodyClean, prefix) && !isTT && !isYTS && !isYTSelect && !isSetup && chatID != "status@broadcast" {
 		return 
 	}
 
-	// 2. سیٹ اپ رسپانس ہینڈلر (Setup Wizard)
+	// 2. سیٹ اپ رسپانس ہینڈلر
 	if isSetup {
 		handleSetupResponse(client, v, setupMap[senderID])
 		return
@@ -129,7 +124,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 
 	// 5. گروپ سیکیورٹی چیک
 	if isGroup {
-		go checkSecurity(client, v) // گوروٹین میں تاکہ میسج پروسیسنگ نہ رکے
+		go checkSecurity(client, v)
 	}
 
 	// 6. 🛠️ انٹرایکٹو آپشنز (TikTok/YouTube)
@@ -199,7 +194,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// 9. کنسول لاگنگ (صرف کمانڈ ایگزیکیوشن پر)
+	// 9. کنسول لاگنگ
 	fmt.Printf("🚀 [EXEC] Bot: %s | CMD: %s | Chat: %s\n", botID, cmd, chatID)
 
 	// 10. مین کمانڈ سوئچ
@@ -309,22 +304,8 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 }
 
-// 1. ریڈیس سے پریفکس حاصل کرنا (سائنس دانوں کو حیران کرنے کے لئے)
-func fetchPrefixFromRedis(botID string) string {
-	// اگر rdb (Redis) کنیکٹ نہیں ہے تو ڈیفالٹ واپس کریں
-	if rdb == nil {
-		return "."
-	}
+// 🚀 ہیلپرز اور اسپیڈ آپٹیمائزڈ فنکشنز
 
-	val, err := rdb.Get(context.Background(), "prefix:"+botID).Result()
-	if err != nil || val == "" {
-		return "." // اگر کچھ نہ ملے تو ڈاٹ ڈیفالٹ ہے
-	}
-	
-	return val
-}
-
-// 2. میموری سے پریفکس حاصل کرنے والا فاسٹ فنکشن
 func getPrefix(botID string) string {
 	prefixMutex.RLock()
 	p, exists := botPrefixes[botID]
@@ -332,80 +313,51 @@ func getPrefix(botID string) string {
 	if exists {
 		return p
 	}
-	// اگر میموری میں نہیں ہے تو فورا ریڈیس سے اٹھا کر میموری میں ڈالیں
-	p = fetchPrefixFromRedis(botID)
+	// اگر میموری میں نہیں ہے تو ریڈیس سے لیں (main.go والے rdb کو استعمال کرتے ہوئے)
+	val, err := rdb.Get(context.Background(), "prefix:"+botID).Result()
+	if err != nil || val == "" {
+		return "." 
+	}
 	prefixMutex.Lock()
-	botPrefixes[botID] = p
+	botPrefixes[botID] = val
 	prefixMutex.Unlock()
-	return p
+	return val
 }
 
-// 3. ریڈیس میں پریفکس اپڈیٹ کرنے والا فنکشن
-
-// 🚀 الٹرا فاسٹ ہیلپرز
-
 func getCleanID(jidStr string) string {
-	if jidStr == "" {
-		return "unknown"
-	}
-	
+	if jidStr == "" { return "unknown" }
 	parts := strings.Split(jidStr, "@")
-	if len(parts) == 0 {
-		return "unknown"
-	}
-	
+	if len(parts) == 0 { return "unknown" }
 	userPart := parts[0]
-	
 	if strings.Contains(userPart, ":") {
-		colonParts := strings.Split(userPart, ":")
-		userPart = colonParts[0]
+		userPart = strings.Split(userPart, ":")[0]
 	}
-	
 	if strings.Contains(userPart, ".") {
-		dotParts := strings.Split(userPart, ".")
-		userPart = dotParts[0]
+		userPart = strings.Split(userPart, ".")[0]
 	}
-	
 	return strings.TrimSpace(userPart)
 }
 
 func getBotLIDFromDB(client *whatsmeow.Client) string {
-	if client.Store.ID == nil {
-		return "unknown"
-	}
-	
+	if client.Store.ID == nil { return "unknown" }
 	lidStr := client.Store.LID.String()
-	if lidStr != "" {
-		return getCleanID(lidStr)
-	}
-	
+	if lidStr != "" { return getCleanID(lidStr) }
 	return getCleanID(client.Store.ID.User)
 }
 
 func isOwner(client *whatsmeow.Client, sender types.JID) bool {
-	if client.Store.ID == nil {
-		return false
-	}
-	
+	if client.Store.ID == nil { return false }
 	senderClean := getCleanID(sender.String())
-	
-	// کیش سے بوٹ کی آئی ڈی لیں
 	rawBotID := client.Store.ID.User
 	botID := botCleanIDCache[rawBotID]
 	if botID == "" { botID = getCleanID(rawBotID) }
-	
 	return (senderClean == botID)
 }
 
-
 func isAdmin(client *whatsmeow.Client, chat, user types.JID) bool {
 	info, err := client.GetGroupInfo(context.Background(), chat)
-	if err != nil {
-		return false
-	}
-	
+	if err != nil { return false }
 	userClean := getCleanID(user.String())
-	
 	for _, p := range info.Participants {
 		participantClean := getCleanID(p.JID.String())
 		if participantClean == userClean && (p.IsAdmin || p.IsSuperAdmin) {
@@ -416,31 +368,16 @@ func isAdmin(client *whatsmeow.Client, chat, user types.JID) bool {
 }
 
 func canExecute(client *whatsmeow.Client, v *events.Message, cmd string) bool {
-	if isOwner(client, v.Info.Sender) {
-		return true
-	}
-	
-	if !v.Info.IsGroup {
-		return true
-	}
-	
+	if isOwner(client, v.Info.Sender) { return true }
+	if !v.Info.IsGroup { return true }
 	s := getGroupSettings(v.Info.Chat.String())
-	
-	if s.Mode == "private" {
-		return false
-	}
-	
-	if s.Mode == "admin" {
-		return isAdmin(client, v.Info.Chat, v.Info.Sender)
-	}
-	
+	if s.Mode == "private" { return false }
+	if s.Mode == "admin" { return isAdmin(client, v.Info.Chat, v.Info.Sender) }
 	return true
 }
 
 func sendOwner(client *whatsmeow.Client, v *events.Message) {
 	senderClean := getCleanID(v.Info.Sender.String())
-	
-	// کیش سے بوٹ کی آئی ڈی لیں
 	rawBotID := client.Store.ID.User
 	botID := botCleanIDCache[rawBotID]
 	if botID == "" { botID = getCleanID(rawBotID) }
@@ -448,24 +385,20 @@ func sendOwner(client *whatsmeow.Client, v *events.Message) {
 	isMatch := (senderClean == botID)
 	status := "❌ NOT Owner"
 	emoji := "🚫"
-	matchType := "LID_MATCH"
-	
 	if isMatch {
 		status = "✅ YOU are Owner"
 		emoji = "👑"
 	}
 	
-	// ✅ اب کارڈ صرف یہاں پرنٹ ہوگا جب کوئی کمانڈ دے گا
 	fmt.Printf(`
 ╔═════════════════════════╗
 ║ 🎯 OWNER COMMAND TRIGGERED
 ╠═════════════════════════╣
 ║ 👤 Sender Clean : %s
 ║ 🆔 Bot LID Clean: %s
-║ 📊 Match Type   : %s
 ║ ✅ Is Owner     : %v
 ╚═══════════════════════════════════╝
-`, senderClean, botID, matchType, isMatch)
+`, senderClean, botID, isMatch)
 	
 	msg := fmt.Sprintf(`╔═══════════════════╗
 ║ %s OWNER VERIFICATION
@@ -482,51 +415,19 @@ func sendOwner(client *whatsmeow.Client, v *events.Message) {
 func sendBotsList(client *whatsmeow.Client, v *events.Message) {
 	clientsMutex.RLock()
 	count := len(activeClients)
-	
 	msg := fmt.Sprintf(`╔═══════════════════╗
 ║ 📊 MULTI-BOT STATUS
 ╠═══════════════════╣
 ║ 🤖 Active Bots: %d
-║ 🔄 Auto-Connect: ✅
-║ 🔐 LID Security: ✅
-║ 📡 DB Sync: ✅
 ╠═══════════════════╣`, count)
-	
 	i := 1
 	for num := range activeClients {
 		msg += fmt.Sprintf("\n║ %d. %s", i, num)
 		i++
 	}
-	
 	clientsMutex.RUnlock()
-	
 	msg += "\n╚═══════════════════════════╝"
-	
 	replyMessage(client, v, msg)
-}
-
-// 🚀 ریڈیس اپ ٹائم لاجک
-
-func loadPersistentUptime() {
-	if rdb != nil {
-		val, err := rdb.Get(context.Background(), "total_uptime").Int64()
-		if err == nil {
-			persistentUptime = val
-		}
-	}
-	fmt.Println("⏳ [UPTIME] Persistent uptime loaded from Redis")
-}
-
-func startPersistentUptimeTracker() {
-	ticker := time.NewTicker(1 * time.Minute)
-	go func() {
-		for range ticker.C {
-			persistentUptime += 60 // 60 سیکنڈز کا اضافہ
-			if rdb != nil {
-				rdb.Set(context.Background(), "total_uptime", persistentUptime, 0)
-			}
-		}
-	}()
 }
 
 func getFormattedUptime() string {
@@ -536,24 +437,17 @@ func getFormattedUptime() string {
 	hours := seconds / 3600
 	seconds %= 3600
 	minutes := seconds / 60
-	
 	return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
 }
 
-
 func sendMenu(client *whatsmeow.Client, v *events.Message) {
 	uptimeStr := getFormattedUptime()
-	
-	// پریفکس کیش سے لیں
 	rawBotID := client.Store.ID.User
 	botID := botCleanIDCache[rawBotID]
 	p := getPrefix(botID)
-
 	s := getGroupSettings(v.Info.Chat.String())
 	currentMode := strings.ToUpper(s.Mode)
-	if !strings.Contains(v.Info.Chat.String(), "@g.us") {
-		currentMode = "PRIVATE"
-	}
+	if !strings.Contains(v.Info.Chat.String(), "@g.us") { currentMode = "PRIVATE" }
 
 	menu := fmt.Sprintf(`╔═════════════════╗
 ║   %s   
@@ -583,22 +477,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║  ╰───────────────────╯
 ║                             
 ║  ╭──── SETTINGS ───╮
-║  │ 🔸 *%saddstatus* 
-║  │ 🔸 *%salwaysonline* 
-║  │ 🔸 *%santilink* 
-║  │ 🔸 *%santipic* 
-║  │ 🔸 *%santisticker* 
-║  │ 🔸 *%santivideo* 
-║  │ 🔸 *%sautoreact* 
-║  │ 🔸 *%sautoread* 
-║  │ 🔸 *%sautostatus* 
-║  │ 🔸 *%sdelstatus* 
-║  │ 🔸 *%sliststatus* 
-║  │ 🔸 *%smode* 
-║  │ 🔸 *%sowner* 
-║  │ 🔸 *%sreadallstatus* 
-║  │ 🔸 *%sstatusreact* 
-║  ╰─────────────────╯
+║  │ 🔸 *%saddstatus* ║  │ 🔸 *%salwaysonline* ║  │ 🔸 *%santilink* ║  │ 🔸 *%santipic* ║  │ 🔸 *%santisticker* ║  │ 🔸 *%santivideo* ║  │ 🔸 *%sautoreact* ║  │ 🔸 *%sautoread* ║  │ 🔸 *%sautostatus* ║  │ 🔸 *%sdelstatus* ║  │ 🔸 *%sliststatus* ║  │ 🔸 *%smode* ║  │ 🔸 *%sowner* ║  │ 🔸 *%sreadallstatus* ║  │ 🔸 *%sstatusreact* ║  ╰─────────────────╯
 ║                             
 ║  ╭─────── TOOLS ───────╮
 ║  │ 🔸 *%sdata* - DB Status
@@ -628,17 +507,11 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 	sendReplyMessage(client, v, menu)
 }
 
-func SetGlobalClient(c *whatsmeow.Client) {
-	globalClient = c
-}
-
 func sendPing(client *whatsmeow.Client, v *events.Message) {
 	start := time.Now()
 	time.Sleep(10 * time.Millisecond)
 	ms := time.Since(start).Milliseconds()
-	
 	uptimeStr := getFormattedUptime()
-
 	msg := fmt.Sprintf(`╔════════════════╗
 ║ ⚡ PING STATUS
 ╠════════════════╣
@@ -648,19 +521,14 @@ func sendPing(client *whatsmeow.Client, v *events.Message) {
 ╠════════════════╣
 ║ 🟢 System Running
 ╚════════════════╝`, ms, uptimeStr, OWNER_NAME)
-
 	sendReplyMessage(client, v, msg)
 }
-
 
 func sendID(client *whatsmeow.Client, v *events.Message) {
 	user := v.Info.Sender.User
 	chat := v.Info.Chat.User
 	chatType := "Private"
-	if v.Info.IsGroup {
-		chatType = "Group"
-	}
-
+	if v.Info.IsGroup { chatType = "Group" }
 	msg := fmt.Sprintf(`╔════════════════╗
 ║ 🆔 ID INFO
 ╠════════════════╣
@@ -670,7 +538,6 @@ func sendID(client *whatsmeow.Client, v *events.Message) {
 ║ `+"`%s`"+`
 ║ 🏷️ Type: %s
 ╚════════════════╝`, user, chat, chatType)
-
 	sendReplyMessage(client, v, msg)
 }
 
@@ -715,18 +582,10 @@ func sendReplyMessage(client *whatsmeow.Client, v *events.Message, text string) 
 }
 
 func getText(m *waProto.Message) string {
-	if m.Conversation != nil {
-		return *m.Conversation
-	}
-	if m.ExtendedTextMessage != nil && m.ExtendedTextMessage.Text != nil {
-		return *m.ExtendedTextMessage.Text
-	}
-	if m.ImageMessage != nil && m.ImageMessage.Caption != nil {
-		return *m.ImageMessage.Caption
-	}
-	if m.VideoMessage != nil && m.VideoMessage.Caption != nil {
-		return *m.VideoMessage.Caption
-	}
+	if m.Conversation != nil { return *m.Conversation }
+	if m.ExtendedTextMessage != nil && m.ExtendedTextMessage.Text != nil { return *m.ExtendedTextMessage.Text }
+	if m.ImageMessage != nil && m.ImageMessage.Caption != nil { return *m.ImageMessage.Caption }
+	if m.VideoMessage != nil && m.VideoMessage.Caption != nil { return *m.VideoMessage.Caption }
 	return ""
 }
 
@@ -744,152 +603,55 @@ func getGroupSettings(id string) *GroupSettings {
 		Antilink:       false,
 		AntilinkAdmin:  true,
 		AntilinkAction: "delete",
-		AntiPic:        false,
-		AntiVideo:      false,
-		AntiSticker:    false,
 		Warnings:       make(map[string]int),
 	}
 
 	cacheMutex.Lock()
 	groupCache[id] = s
 	cacheMutex.Unlock()
-
 	return s
 }
-
-func saveGroupSettings(s *GroupSettings) {
-	cacheMutex.Lock()
-	groupCache[s.ChatID] = s
-	cacheMutex.Unlock()
-}
-
-
-func StartAllBots(container *sqlstore.Container) {
-	dbContainer = container
-	ctx := context.Background()
-	
-	devices, err := container.GetAllDevices(ctx)
-	if err != nil {
-		fmt.Printf("❌ [DB-ERROR] Could not load sessions: %v\n", err)
-		return
-	}
-
-	fmt.Printf("\n🤖 Starting Multi-Bot System (Found %d entries in DB)\n", len(devices))
-
-	seenNumbers := make(map[string]bool)
-
-	for i, device := range devices {
-		botNum := getCleanID(device.ID.User)
-		
-		// 🛡️ اگر یہ نمبر اس لوپ میں پہلے آ چکا ہے تو اسے چھوڑ دو
-		if seenNumbers[botNum] {
-			continue
-		}
-		seenNumbers[botNum] = true
-
-		go func(idx int, dev *store.Device) {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("❌ Crash prevented on startup for %s: %v\n", botNum, r)
-				}
-			}()
-			ConnectNewSession(dev)
-		}(i, device)
-		
-		time.Sleep(5 * time.Second)
-	}
-
-	go monitorNewSessions(container)
-}
-
-
-
-func monitorNewSessions(container *sqlstore.Container) {
-	ticker := time.NewTicker(60 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		devices, err := container.GetAllDevices(context.Background())
-		if err != nil {
-			continue
-		}
-
-		for _, device := range devices {
-			botID := getCleanID(device.ID.User)
-			
-			clientsMutex.RLock()
-			_, exists := activeClients[botID]
-			clientsMutex.RUnlock()
-
-			if !exists {
-				fmt.Printf("\n🆕 [AUTO-CONNECT] New session found: %s\n", botID)
-				go ConnectNewSession(device)
-				time.Sleep(5 * time.Second)
-			}
-		}
-	}
-}
-
 
 func handleSessionDelete(client *whatsmeow.Client, v *events.Message, args []string) {
 	if !isOwner(client, v.Info.Sender) {
 		replyMessage(client, v, "╔═══════════════════╗\n║ 👑 OWNER ONLY      \n╠═══════════════════╣\n║ You don't have    \n║ permission.       \n╚═══════════════════╝")
 		return
 	}
-
 	if len(args) == 0 {
-		replyMessage(client, v, "⚠️ Please provide a number. Example: .sd 92301xxxxxx")
+		replyMessage(client, v, "⚠️ Please provide a number.")
 		return
 	}
-
 	targetNumber := args[0]
 	targetJID, ok := parseJID(targetNumber)
 	if !ok {
-		replyMessage(client, v, "❌ Invalid number format.")
+		replyMessage(client, v, "❌ Invalid format.")
 		return
 	}
-
-	fmt.Printf("\n--- [SESSION DELETE START] ---\n")
-	
 	clientsMutex.Lock()
-	targetClient, exists := activeClients[getCleanID(targetNumber)]
-	if exists {
+	if targetClient, exists := activeClients[getCleanID(targetNumber)]; exists {
 		targetClient.Disconnect()
 		delete(activeClients, getCleanID(targetNumber))
 	}
 	clientsMutex.Unlock()
 
 	if dbContainer == nil {
-		replyMessage(client, v, "❌ Database connection error.")
+		replyMessage(client, v, "❌ Database error.")
 		return
 	}
-
 	device, err := dbContainer.GetDevice(context.Background(), targetJID)
 	if err != nil || device == nil {
-		replyMessage(client, v, "❌ Session not found in database.")
+		replyMessage(client, v, "❌ Not found.")
 		return
 	}
-
-	err = device.Delete(context.Background())
-	if err != nil {
-		fmt.Printf("❌ DB Delete Error: %v\n", err)
-		replyMessage(client, v, "❌ Failed to delete session from DB.")
-	} else {
-		msg := fmt.Sprintf("╔═══════════════════╗\n║ 🗑️ SESSION DELETED  \n╠═══════════════════╣\n║ Number: %s\n║ Status: REMOVED    \n║ Action: Rescan QR \n╚═══════════════════╝", targetNumber)
-		replyMessage(client, v, msg)
-	}
+	device.Delete(context.Background())
+	msg := fmt.Sprintf("╔═══════════════════╗\n║ 🗑️ SESSION DELETED  \n╠═══════════════════╣\n║ Number: %s\n╚═══════════════════╝", targetNumber)
+	replyMessage(client, v, msg)
 }
 
 func parseJID(arg string) (types.JID, bool) {
-	if arg == "" {
-		return types.EmptyJID, false
-	}
-	if !strings.Contains(arg, "@") {
-		arg += "@s.whatsapp.net"
-	}
+	if arg == "" { return types.EmptyJID, false }
+	if !strings.Contains(arg, "@") { arg += "@s.whatsapp.net" }
 	jid, err := types.ParseJID(arg)
-	if err != nil {
-		return types.EmptyJID, false
-	}
+	if err != nil { return types.EmptyJID, false }
 	return jid, true
 }
