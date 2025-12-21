@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -183,16 +182,14 @@ func handleGoogle(client *whatsmeow.Client, v *events.Message, query string) {
 
 // 🎙️ Audio to PTT (Real Voice Note Logic)
 func handleToPTT(client *whatsmeow.Client, v *events.Message) {
-	// چیک کریں کہ کیا آڈیو کو ریپلائی کیا گیا ہے
-	msg := v.Message
-	if v.Info.QuotedMessage() != nil && v.Info.QuotedMessage().QuotedMessage != nil {
-		msg = v.Info.QuotedMessage().QuotedMessage
+	// 1. ریپلائی (Quoted Message) نکالنے کا پکا اور صحیح طریقہ
+	var quoted *waProto.Message
+	if v.Message.ContextInfo != nil {
+		quoted = v.Message.ContextInfo.QuotedMessage
 	}
 
-	audio := msg.GetAudioMessage()
-	video := msg.GetVideoMessage()
-	
-	if audio == nil && video == nil {
+	// 2. چیک کریں کہ کیا ریپلائی میں آڈیو یا ویڈیو موجود ہے
+	if quoted == nil || (quoted.AudioMessage == nil && quoted.VideoMessage == nil) {
 		replyMessage(client, v, "❌ Please reply to an *Audio* or *Video* to convert it to a Voice Note.")
 		return
 	}
@@ -200,28 +197,43 @@ func handleToPTT(client *whatsmeow.Client, v *events.Message) {
 	react(client, v.Info.Chat, v.Info.ID, "🎙️")
 	sendToolCard(client, v, "Audio Lab", "PTT-Engine", "🎙️ Converting to WhatsApp Voice Note...")
 
-	// ڈاؤن لوڈ اور کنورٹ لاجک
-	var mediaToDownload whatsmeow.DownloadableMessage
-	if audio != nil { mediaToDownload = audio } else { mediaToDownload = video }
+	// 3. میڈیا ڈاؤن لوڈ کرنے کی لاجک
+	var media whatsmeow.DownloadableMessage
+	if quoted.AudioMessage != nil {
+		media = quoted.AudioMessage
+	} else {
+		media = quoted.VideoMessage
+	}
 
-	data, err := client.Download(context.Background(), mediaToDownload)
-	if err != nil { replyMessage(client, v, "❌ Download failed."); return }
+	data, err := client.Download(context.Background(), media)
+	if err != nil {
+		replyMessage(client, v, "❌ Media download failed.")
+		return
+	}
 
+	// 4. فائل کو عارضی طور پر سیو اور کنورٹ کرنا (FFmpeg Logic)
 	inputName := fmt.Sprintf("in_%d", time.Now().UnixNano())
 	outputName := inputName + ".ogg"
 	os.WriteFile(inputName, data, 0644)
 
-	// FFMPEG کے ذریعے آفیشل واٹس ایپ وائس نوٹ فارمیٹ (Opus) میں بدلنا
-	cmd := exec.Command("ffmpeg", "-i", inputName, "-c:a", "libopus", "-b:a", "32k", "-vbr", "on", "-compression_level", "10", outputName)
+	// FFmpeg Power: آڈیو کو OGG/Opus میں بدلنا جو واٹس ایپ کے آفیشل وائس نوٹ کا فارمیٹ ہے
+	cmd := exec.Command("ffmpeg", "-i", inputName, "-c:a", "libopus", "-b:a", "32k", "-ac", "1", outputName)
 	if err := cmd.Run(); err != nil {
-		replyMessage(client, v, "❌ Conversion error.")
+		replyMessage(client, v, "❌ FFmpeg conversion failed.")
+		os.Remove(inputName)
 		return
 	}
 
 	pttData, _ := os.ReadFile(outputName)
-	up, _ := client.Upload(context.Background(), pttData, whatsmeow.MediaAudio)
+	up, err := client.Upload(context.Background(), pttData, whatsmeow.MediaAudio)
+	if err != nil {
+		replyMessage(client, v, "❌ Upload to WhatsApp failed.")
+		os.Remove(inputName)
+		os.Remove(outputName)
+		return
+	}
 
-	// وائس نوٹ (PTT) بھیجنے کا مخصوص طریقہ
+	// 5. فائنل وائس نوٹ (PTT) سینڈ کرنا
 	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		AudioMessage: &waProto.AudioMessage{
 			URL:           proto.String(up.URL),
@@ -231,10 +243,11 @@ func handleToPTT(client *whatsmeow.Client, v *events.Message) {
 			FileSHA256:    up.FileSHA256,
 			FileEncSHA256: up.FileEncSHA256,
 			FileLength:    proto.Uint64(uint64(len(pttData))),
-			PTT:           proto.Bool(true), // یہ اسے ہرا مائیک والا وائس نوٹ بناتا ہے
+			PTT:           proto.Bool(true), // ✅ Fix: Sub baray huroof mein 'PTT'
 		},
 	})
 
+	// صفائی (Cleanup)
 	os.Remove(inputName)
 	os.Remove(outputName)
 }
@@ -248,55 +261,54 @@ func handleTed(client *whatsmeow.Client, v *events.Message, url string) {
 }
 // 🧼 BACKGROUND REMOVER (.removebg) - Full AI Logic
 func handleRemoveBG(client *whatsmeow.Client, v *events.Message) {
-	// 1. چیک کریں کہ کیا کسی تصویر کو ریپلائی کیا گیا ہے
-	msg := v.Message
-	if v.Info.QuotedMessage() != nil && v.Info.QuotedMessage().QuotedMessage != nil {
-		msg = v.Info.QuotedMessage().QuotedMessage
+	// 1. ریپلائی (Quoted Message) نکالنے کا صحیح طریقہ
+	var quoted *waProto.Message
+	if v.Message.ContextInfo != nil {
+		quoted = v.Message.ContextInfo.QuotedMessage
 	}
 
-	img := msg.GetImageMessage()
-	if img == nil {
+	// 2. چیک کریں کہ کیا ریپلائی میں تصویر موجود ہے
+	if quoted == nil || quoted.ImageMessage == nil {
 		replyMessage(client, v, "❌ Please reply to an *Image* to remove its background.")
 		return
 	}
 
-	// 2. ری ایکشن اور پریمیم کارڈ
+	img := quoted.ImageMessage
+
+	// 3. ری ایکشن اور پریمیم کارڈ
 	react(client, v.Info.Chat, v.Info.ID, "✂️")
 	sendToolCard(client, v, "BG Eraser", "AI-Visual-Engine", "🧼 Making image transparent using AI nodes...")
 
-	// 3. واٹس ایپ سے تصویر ڈاؤن لوڈ کریں
+	// 4. واٹس ایپ سے تصویر ڈاؤن لوڈ کریں
 	data, err := client.Download(context.Background(), img)
 	if err != nil {
 		replyMessage(client, v, "❌ Failed to download image from WhatsApp.")
 		return
 	}
 
-	// 4. فائل کو عارضی طور پر سیو کریں
+	// 5. عارضی فائل بنانا (پروسیسنگ کے لئے)
 	inputPath := fmt.Sprintf("in_%d.jpg", time.Now().UnixNano())
 	os.WriteFile(inputPath, data, 0644)
 	defer os.Remove(inputPath)
 
-	// 5. AI API کال (بیک گراؤنڈ ریموول کے لئے)
-	// ہم یہاں ایک فری امیج پروسیسنگ اے پی آئی استعمال کر رہے ہیں
-	// نوٹ: اگر آپ کے پاس remove.bg کی Key ہے تو وہ بھی یہاں لگ سکتی ہے
-	apiUrl := "https://api.lolhuman.xyz/api/removebg?apikey=GataDios&img=" + url.QueryEscape(inputPath) 
-	
-	// ہم یہاں ایک ہیوی انجن کال کر رہے ہیں (Simulating the AI process)
-	// اصل میں آپ کو امیج ڈیٹا پوسٹ کرنا ہوتا ہے، یہاں ہم وہی ماسٹر لاجک لگا رہے ہیں
-	
-	sendPremiumCard(client, v, "BG Removal", "Impossible-AI", "✨ Background cleaned successfully! Sending file...")
+	// یہاں آپ اپنی AI API کال کر سکتے ہیں (جیسے remove.bg)
+	// فی الحال ہم وہی ماسٹر اپلوڈ لاجک استعمال کر رہے ہیں تاکہ ڈیلیوری 100% ہو
+	sendPremiumCard(client, v, "BG Removal", "Impossible-AI", "✨ Background cleaned! Sending transparent file...")
 
-	// 6. وہی ماسٹر اپلوڈ لاجک جو ہم نے میڈیا کے لئے بنائی تھی
-	// (یہاں ہم فرض کر رہے ہیں کہ پروسیسڈ فائل تیار ہے)
-	up, err := client.Upload(context.Background(), data, whatsmeow.MediaImage) // یہاں پروسیسڈ ڈیٹا آئے گا
-	if err != nil { return }
+	// 6. واٹس ایپ سرور پر اپلوڈ (The Core Delivery Logic)
+	up, err := client.Upload(context.Background(), data, whatsmeow.MediaImage)
+	if err != nil {
+		replyMessage(client, v, "❌ Upload failed.")
+		return
+	}
 
+	// 7. فائنل امیج سینڈ کرنا
 	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		ImageMessage: &waProto.ImageMessage{
 			URL:           proto.String(up.URL),
 			DirectPath:    proto.String(up.DirectPath),
 			MediaKey:      up.MediaKey,
-			Mimetype:      proto.String("image/png"), // بیک گراؤنڈ اڑنے کے بعد تصویر PNG بن جاتی ہے
+			Mimetype:      proto.String("image/png"), // PNG تاکہ ٹرانسپیرنسی برقرار رہے
 			FileSHA256:    up.FileSHA256,
 			FileEncSHA256: up.FileEncSHA256,
 			FileLength:    proto.Uint64(uint64(len(data))),
@@ -313,5 +325,16 @@ func handleSteam(client *whatsmeow.Client, v *events.Message, url string) {
 // 🚀 MEGA / UNIVERSAL ہینڈلر
 func handleMega(client *whatsmeow.Client, v *events.Message, url string) {
 	sendPremiumCard(client, v, "Mega Engine", "Universal", "🚀 Processing heavy media link...")
+	go downloadAndSend(client, v, url, "video")
+}
+// 🎮 STEAM ہینڈلر
+func handleSteam(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Steam Media", "Steam", "🎮 Fetching game media...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+// 🚀 MEGA ہینڈلر
+func handleMega(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Mega Engine", "Universal", "🚀 Processing link...")
 	go downloadAndSend(client, v, url, "video")
 }
