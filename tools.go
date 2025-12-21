@@ -416,11 +416,13 @@ func handleTranslate(client *whatsmeow.Client, v *events.Message, args []string)
 }
 
 func handleVV(client *whatsmeow.Client, v *events.Message) {
-	// React to indicate processing
+	// 1. React to show the bot received the command
 	react(client, v.Info.Chat, v.Info.ID, "🫣")
+	fmt.Printf("\n[VV-COMMAND] Processing request from: %s\n", v.Info.Sender.String())
 
-	// 1. Check if it's a reply
+	// 2. Check if it's a reply
 	if v.Message.GetExtendedTextMessage().GetContextInfo() == nil {
+		fmt.Println("❌ [VV-ERROR] Not a reply message.")
 		msg := `╔═══════════════════╗
 ║   ⚠️  VIEW ONCE     
 ╠═══════════════════╣
@@ -431,9 +433,10 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// 2. Extract Quoted Message
+	// 3. Extract Quoted Message
 	quoted := v.Message.GetExtendedTextMessage().GetContextInfo().GetQuotedMessage()
 	if quoted == nil {
+		fmt.Println("❌ [VV-ERROR] Quoted message is nil.")
 		msg := `╔═══════════════════╗
 ║  ❌ NOT FOUND       
 ╠═══════════════════╣
@@ -444,7 +447,7 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// 3. Resolve Media (Handle View Once Nesting)
+	// 4. Resolve Media (Deep Extraction)
 	var (
 		img   = quoted.GetImageMessage()
 		vid   = quoted.GetVideoMessage()
@@ -453,15 +456,18 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 		isV2  = quoted.GetViewOnceMessageV2().GetMessage()
 	)
 
+	// Check inside ViewOnce wrappers
 	if isV1 != nil {
+		fmt.Println("🔍 [VV-INFO] Detected ViewOnce V1 wrapper.")
 		if isV1.ImageMessage != nil { img = isV1.ImageMessage }
 		if isV1.VideoMessage != nil { vid = isV1.VideoMessage }
 	} else if isV2 != nil {
+		fmt.Println("🔍 [VV-INFO] Detected ViewOnce V2 wrapper.")
 		if isV2.ImageMessage != nil { img = isV2.ImageMessage }
 		if isV2.VideoMessage != nil { vid = isV2.VideoMessage }
 	}
 
-	// 4. Download and Prepare Message
+	// 5. Processing and Printing Logic
 	var (
 		data []byte
 		err  error
@@ -471,66 +477,96 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 	)
 
 	if img != nil {
+		fmt.Println("📸 [VV-PROCESS] Attempting to download Image...")
 		data, err = client.Download(ctx, img)
-		if err == nil {
-			up, _ := client.Upload(ctx, data, whatsmeow.MediaImage)
-			msgToSend.ImageMessage = &waProto.ImageMessage{
-				URL:           proto.String(up.URL),
-				DirectPath:    proto.String(up.DirectPath),
-				MediaKey:      up.MediaKey,
-				Mimetype:      proto.String("image/jpeg"),
-				FileEncSHA256: up.FileEncSHA256,
-				FileSHA256:    up.FileSHA256,
-				Caption:       proto.String(caption),
-				ContextInfo: &waProto.ContextInfo{
-					StanzaID:      proto.String(v.Info.ID),
-					Participant:   proto.String(v.Info.Sender.String()),
-					QuotedMessage: v.Message,
-				},
+		if err != nil {
+			fmt.Printf("❌ [VV-DOWNLOAD-ERR] Image download failed: %v\n", err)
+		} else {
+			fmt.Println("✅ [VV-SUCCESS] Image downloaded. Uploading to WA...")
+			up, uploadErr := client.Upload(ctx, data, whatsmeow.MediaImage)
+			if uploadErr != nil {
+				fmt.Printf("❌ [VV-UPLOAD-ERR] Image upload failed: %v\n", uploadErr)
+				err = uploadErr
+			} else {
+				msgToSend.ImageMessage = &waProto.ImageMessage{
+					URL:           proto.String(up.URL),
+					DirectPath:    proto.String(up.DirectPath),
+					MediaKey:      up.MediaKey,
+					Mimetype:      proto.String("image/jpeg"),
+					FileEncSHA256: up.FileEncSHA256,
+					FileSHA256:    up.FileSHA256,
+					Caption:       proto.String(caption),
+					ContextInfo: &waProto.ContextInfo{
+						StanzaID:      proto.String(v.Info.ID),
+						Participant:   proto.String(v.Info.Sender.String()),
+						QuotedMessage: v.Message,
+					},
+				}
 			}
 		}
 	} else if vid != nil {
+		fmt.Println("🎥 [VV-PROCESS] Attempting to download Video...")
 		data, err = client.Download(ctx, vid)
-		if err == nil {
-			up, _ := client.Upload(ctx, data, whatsmeow.MediaVideo)
-			msgToSend.VideoMessage = &waProto.VideoMessage{
-				URL:           proto.String(up.URL),
-				DirectPath:    proto.String(up.DirectPath),
-				MediaKey:      up.MediaKey,
-				Mimetype:      proto.String("video/mp4"),
-				FileEncSHA256: up.FileEncSHA256,
-				FileSHA256:    up.FileSHA256,
-				Caption:       proto.String(caption),
-				ContextInfo: &waProto.ContextInfo{
-					StanzaID:      proto.String(v.Info.ID),
-					Participant:   proto.String(v.Info.Sender.String()),
-					QuotedMessage: v.Message,
-				},
+		if err != nil {
+			fmt.Printf("❌ [VV-DOWNLOAD-ERR] Video download failed: %v\n", err)
+		} else {
+			fmt.Println("✅ [VV-SUCCESS] Video downloaded. Uploading to WA...")
+			up, uploadErr := client.Upload(ctx, data, whatsmeow.MediaVideo)
+			if uploadErr != nil {
+				fmt.Printf("❌ [VV-UPLOAD-ERR] Video upload failed: %v\n", uploadErr)
+				err = uploadErr
+			} else {
+				msgToSend.VideoMessage = &waProto.VideoMessage{
+					URL:           proto.String(up.URL),
+					DirectPath:    proto.String(up.DirectPath),
+					MediaKey:      up.MediaKey,
+					Mimetype:      proto.String("video/mp4"),
+					FileEncSHA256: up.FileEncSHA256,
+					FileSHA256:    up.FileSHA256,
+					Caption:       proto.String(caption),
+					ContextInfo: &waProto.ContextInfo{
+						StanzaID:      proto.String(v.Info.ID),
+						Participant:   proto.String(v.Info.Sender.String()),
+						QuotedMessage: v.Message,
+					},
+				}
 			}
 		}
 	} else if aud != nil {
+		fmt.Println("🎤 [VV-PROCESS] Attempting to download Audio/Voice...")
 		data, err = client.Download(ctx, aud)
-		if err == nil {
-			up, _ := client.Upload(ctx, data, whatsmeow.MediaAudio)
-			msgToSend.AudioMessage = &waProto.AudioMessage{
-				URL:           proto.String(up.URL),
-				DirectPath:    proto.String(up.DirectPath),
-				MediaKey:      up.MediaKey,
-				Mimetype:      proto.String("audio/ogg; codecs=opus"),
-				FileEncSHA256: up.FileEncSHA256,
-				FileSHA256:    up.FileSHA256,
-				PTT:           proto.Bool(true), // Fixed to PTT
-				ContextInfo: &waProto.ContextInfo{
-					StanzaID:      proto.String(v.Info.ID),
-					Participant:   proto.String(v.Info.Sender.String()),
-					QuotedMessage: v.Message,
-				},
+		if err != nil {
+			fmt.Printf("❌ [VV-DOWNLOAD-ERR] Audio download failed: %v\n", err)
+		} else {
+			fmt.Println("✅ [VV-SUCCESS] Audio downloaded. Uploading to WA...")
+			up, uploadErr := client.Upload(ctx, data, whatsmeow.MediaAudio)
+			if uploadErr != nil {
+				fmt.Printf("❌ [VV-UPLOAD-ERR] Audio upload failed: %v\n", uploadErr)
+				err = uploadErr
+			} else {
+				msgToSend.AudioMessage = &waProto.AudioMessage{
+					URL:           proto.String(up.URL),
+					DirectPath:    proto.String(up.DirectPath),
+					MediaKey:      up.MediaKey,
+					Mimetype:      proto.String("audio/ogg; codecs=opus"),
+					FileEncSHA256: up.FileEncSHA256,
+					FileSHA256:    up.FileSHA256,
+					PTT:           proto.Bool(true), // Fixed to PTT
+					ContextInfo: &waProto.ContextInfo{
+						StanzaID:      proto.String(v.Info.ID),
+						Participant:   proto.String(v.Info.Sender.String()),
+						QuotedMessage: v.Message,
+					},
+				}
 			}
 		}
+	} else {
+		fmt.Println("⚠️ [VV-WARN] No supported media found in quoted message.")
 	}
 
-	// 5. Check if we have a valid message to send
+	// 6. Final Execution Check
 	if err != nil || (msgToSend.ImageMessage == nil && msgToSend.VideoMessage == nil && msgToSend.AudioMessage == nil) {
+		fmt.Printf("❌ [VV-FAIL] Could not send media. Err: %v\n", err)
 		msg := `╔═══════════════════╗
 ║  ❌ ERROR FAILED    
 ╠═══════════════════╣
@@ -541,9 +577,15 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// Final Send
-	client.SendMessage(ctx, v.Info.Chat, msgToSend)
+	// Send the message
+	_, sendErr := client.SendMessage(ctx, v.Info.Chat, msgToSend)
+	if sendErr != nil {
+		fmt.Printf("❌ [VV-SEND-ERR] Final message failed to send: %v\n", sendErr)
+	} else {
+		fmt.Println("🚀 [VV-DONE] Media successfully sent to user!")
+	}
 }
+
 
 
 
