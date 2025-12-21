@@ -322,6 +322,32 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 
 // ڈیٹا بیس سے پریفکس لوڈ کرنا
 // 1. ڈیٹا بیس سے پریفکس حاصل کرنا (سب سے فاسٹ طریقہ)
+// 1. ڈیٹا بیس سے پریفکس لوڈ کرنا (نام اب میچ کرے گا)
+func fetchPrefixFromMongo(botID string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// اگر mongoColl کنیکٹ نہیں ہے تو ڈیفالٹ واپس کریں
+	if mongoColl == nil {
+		return "."
+	}
+
+	var result struct {
+		Prefix string `bson:"prefix"`
+	}
+	
+	// ڈیٹا بیس میں تلاش کریں
+	filter := bson.M{"bot_id": botID}
+	err := mongoColl.FindOne(ctx, filter).Decode(&result)
+	
+	if err != nil || result.Prefix == "" {
+		return "." // اگر کچھ نہ ملے تو ڈاٹ ڈیفالٹ ہے
+	}
+	
+	return result.Prefix
+}
+
+// 2. میموری سے پریفکس حاصل کرنے والا فاسٹ فنکشن
 func getPrefix(botID string) string {
 	prefixMutex.RLock()
 	p, exists := botPrefixes[botID]
@@ -329,24 +355,27 @@ func getPrefix(botID string) string {
 	if exists {
 		return p
 	}
-	return "." // اگر میموری میں نہ ہو تو ڈیفالٹ
+	// اگر میموری میں نہیں ہے تو فورا ڈی بی سے اٹھا کر میموری میں ڈالیں
+	p = fetchPrefixFromMongo(botID)
+	prefixMutex.Lock()
+	botPrefixes[botID] = p
+	prefixMutex.Unlock()
+	return p
 }
 
-// 2. پریفکس کو ڈیٹا بیس میں مستقل محفوظ کرنا
+// 3. ڈیٹا بیس میں پریفکس اپڈیٹ کرنے والا فنکشن
 func updatePrefixDB(botID string, newPrefix string) {
 	prefixMutex.Lock()
 	botPrefixes[botID] = newPrefix
 	prefixMutex.Unlock()
 
-	// 💾 MongoDB سنک: تاکہ ریلوے ڈپلائمنٹ پر پریفکس ری-سیٹ نہ ہو
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	filter := bson.M{"bot_id": botID}
-	update := bson.M{"$set": bson.M{"prefix": newPrefix}}
-	opts := options.Update().SetUpsert(true)
-
 	if mongoColl != nil {
+		filter := bson.M{"bot_id": botID}
+		update := bson.M{"$set": bson.M{"prefix": newPrefix}}
+		opts := options.Update().SetUpsert(true)
 		mongoColl.UpdateOne(ctx, filter, update, opts)
 	}
 }
