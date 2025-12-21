@@ -15,6 +15,8 @@ import (
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
+	"go.mongodb.org/mongo-driver/bson"           // یہ لازمی ہے
+    "go.mongodb.org/mongo-driver/mongo/options"   // یہ بھی لازمی ہے
 )
 
 var (
@@ -82,28 +84,29 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	bodyRaw := getText(v.Message)
 	bodyClean := strings.TrimSpace(bodyRaw)
 	
-	// اس بوٹ کا مخصوص پریفکس حاصل کریں
+	// اس بوٹ کا مخصوص پریفکس ڈیٹا بیس/میموری سے حاصل کریں
 	prefix := getPrefix(botID)
 
 	// 🛠️ اسپیڈ بوسٹ فلٹر (Early Exit)
-	// اگر پریفکس نہیں ہے اور یہ کوئی ایکٹیو سلیکشن بھی نہیں ہے، تو بوٹ یہیں رک جائے گا
+	// اگر پریفکس نہیں ہے اور یہ کوئی ایکٹیو سلیکشن (Interactive) بھی نہیں ہے، تو بوٹ یہیں رک جائے گا
 	_, isTT := ttCache[senderID]
 	_, isYTS := ytCache[senderID]
 	_, isYTSelect := ytDownloadCache[chatID]
 	isSetup := false
-	if _, ok := setupMap[senderID]; ok && setupMap[senderID].GroupID == chatID { isSetup = true }
+	if state, ok := setupMap[senderID]; ok && state.GroupID == chatID { isSetup = true }
 
+	// ⚡ الٹرا سپیڈ چیک: اگر کام کی چیز نہیں ہے تو ریم ضائع نہ کرو
 	if !strings.HasPrefix(bodyClean, prefix) && !isTT && !isYTS && !isYTSelect && !isSetup && chatID != "status@broadcast" {
-		return // 🚀 سپیڈ فکس: فالتو میسجز پر بوٹ خاموش رہے گا
+		return 
 	}
 
-	// 2. سیٹ اپ رسپانس ہینڈلر
+	// 2. سیٹ اپ رسپانس ہینڈلر (Setup Wizard)
 	if isSetup {
 		handleSetupResponse(client, v, setupMap[senderID])
 		return
 	}
 
-	// 3. اسٹیٹس براڈکاسٹ (Auto Status View/React)
+	// 3. اسٹیٹس براڈکاسٹ (Auto Status View/React) - یہ آپ کا اصل کوڈ ہے
 	if chatID == "status@broadcast" {
 		dataMutex.RLock()
 		if data.AutoStatus {
@@ -117,7 +120,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// 4. آٹو ریڈ اور آٹو ری ایکٹ (صرف ان میسجز کے لیے جو فلٹر سے گزرے ہوں)
+	// 4. آٹو ریڈ اور آٹو ری ایکٹ (Regular Messages)
 	dataMutex.RLock()
 	if data.AutoRead {
 		client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
@@ -133,8 +136,9 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 
 	// 6. 🛠️ انٹرایکٹو آپشنز ہینڈلر (TikTok/YouTube Selection)
-	// ٹک ٹاک سلیکشن
-	if state, exists := ttCache[senderID]; exists {
+	// ٹک ٹاک سلیکشن - آپ کا اوریجنل کارڈ اسٹائل
+	if isTT {
+		state := ttCache[senderID]
 		if bodyClean == "1" {
 			delete(ttCache, senderID)
 			react(client, v.Info.Chat, v.Info.ID, "🎬")
@@ -148,7 +152,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		} else if bodyClean == "3" {
 			delete(ttCache, senderID)
 			infoMsg := fmt.Sprintf(`╔═══════════════════╗
-║ 📄 TIKTOK INFO      
+║ 📄 TIKTOK INFO      
 ╠═══════════════════╣
 ║ 📝 Title: %s
 ║ 📊 Size: %.2f MB
@@ -159,21 +163,21 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 
-	// یوٹیوب سرچ سلیکشن
+	// یوٹیوب سرچ رزلٹ سلیکشن (Reply with 1-5)
 	if results, exists := ytCache[senderID]; exists {
 		var idx int
 		fmt.Sscanf(bodyClean, "%d", &idx)
 		if idx >= 1 && idx <= len(results) {
 			selected := results[idx-1]
 			delete(ytCache, senderID)
-			handleYTDownloadMenu(client, v, selected.Url)
+			handleYTDownloadMenu(client, v, selected.Url) // مینو دکھائیں
 			return
 		}
 	}
 
-	// یوٹیوب فارمیٹ سلیکشن (Only for the person who started it)
+	// یوٹیوب فارمیٹ سلیکشن (360p, 720p, etc.)
 	if state, exists := ytDownloadCache[chatID]; exists {
-		if senderID != state.SenderID { return } // ٹوسٹ: دوسرے بندے کو اگنور کریں
+		if senderID != state.SenderID { return } // صرف وہی بندہ جس نے کمانڈ دی
 
 		if bodyClean == "1" || bodyClean == "2" || bodyClean == "3" {
 			delete(ytDownloadCache, chatID)
@@ -199,7 +203,10 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	fmt.Printf("📩 [BOT: %s] CMD: %s | User: %s | Chat: %s\n", botID, cmd, v.Info.Sender.User, v.Info.Chat.User)
+	// 9. کنسول لاگنگ (جو آپ کو چاہیے تھی)
+	fmt.Printf("📩 [BOT: %s] [PREFIX: %s] CMD: %s | User: %s | Chat: %s\n", botID, prefix, cmd, v.Info.Sender.User, chatID)
+
+	// --- اب یہاں سے آپ کا 'switch cmd {' شروع ہوگا ---
 
 	// 9. مین کمانڈ سوئچ (Switch Case)
 	switch cmd {
@@ -251,7 +258,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleListStatus(client, v)
 	case "readallstatus":
 		handleReadAllStatus(client, v)
-	case "setprefix":
 		// یہ اوپر ہینڈل ہو چکا ہے، یہاں صرف ایرر سے بچنے کے لیے رکھا ہے
 	case "mode":
 		handleMode(client, v, args)
@@ -315,30 +321,37 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 }
 
 // ڈیٹا بیس سے پریفکس لوڈ کرنا
+// 1. ڈیٹا بیس سے پریفکس حاصل کرنا (سب سے فاسٹ طریقہ)
 func getPrefix(botID string) string {
 	prefixMutex.RLock()
 	p, exists := botPrefixes[botID]
 	prefixMutex.RUnlock()
-	if exists { return p }
-	return "." // Default
+	if exists {
+		return p
+	}
+	return "." // اگر میموری میں نہ ہو تو ڈیفالٹ
 }
 
-// ڈیٹا بیس میں پریفکس سیو کرنا
+// 2. پریفکس کو ڈیٹا بیس میں مستقل محفوظ کرنا
 func updatePrefixDB(botID string, newPrefix string) {
 	prefixMutex.Lock()
 	botPrefixes[botID] = newPrefix
 	prefixMutex.Unlock()
-	
-	// MongoDB میں سیو کریں تاکہ ری-ڈپلائے پر ری-سیٹ نہ ہو
+
+	// 💾 MongoDB سنک: تاکہ ریلوے ڈپلائمنٹ پر پریفکس ری-سیٹ نہ ہو
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	filter := bson.M{"bot_id": botID}
 	update := bson.M{"$set": bson.M{"prefix": newPrefix}}
 	opts := options.Update().SetUpsert(true)
-	
-	mongoColl.UpdateOne(ctx, filter, update, opts)
+
+	if mongoColl != nil {
+		mongoColl.UpdateOne(ctx, filter, update, opts)
+	}
 }
+
+// 3. 🚀 الٹرا فاسٹ پروسیس میسج (گروپ اسپیڈ آپٹیمائزڈ)
 
 func getCleanID(jidStr string) string {
 	if jidStr == "" {
@@ -748,6 +761,9 @@ func ConnectNewSession(device *store.Device) {
     prefixMutex.Lock()
     botPrefixes[botID] = "." // ڈیفالٹ پریفکس
     prefixMutex.Unlock()
+    // ConnectNewSession کے اندر جہاں بوٹ آئی ڈی ملتی ہے:
+    prefixFromDB := fetchPrefixFromMongo(botID) 
+    botPrefixes[botID] = prefixFromDB
 
 	// 🛡️ ڈپلیکیٹ چیک: اگر پہلے سے لسٹ میں ہے تو واپس چلے جاؤ
 	clientsMutex.RLock()
