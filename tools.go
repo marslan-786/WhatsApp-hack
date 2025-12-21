@@ -416,22 +416,35 @@ func handleTranslate(client *whatsmeow.Client, v *events.Message, args []string)
 }
 
 func handleVV(client *whatsmeow.Client, v *events.Message) {
+	// React to indicate processing
 	react(client, v.Info.Chat, v.Info.ID, "🫣")
 
-	// 1. چیک کریں کہ کیا یہ کسی میسج کا رپلائی ہے
+	// 1. Check if it's a reply
 	if v.Message.GetExtendedTextMessage().GetContextInfo() == nil {
-		replyMessage(client, v, "❌ کسی میڈیا میسج کا رپلائی کریں (Reply to a media message)")
+		msg := `╔═══════════════════╗
+║   ⚠️  VIEW ONCE     
+╠═══════════════════╣
+║ Reply to a media   
+║ message to copy it 
+╚═══════════════════╝`
+		replyMessage(client, v, msg)
 		return
 	}
 
-	// 2. اصل کوٹڈ میسج (Quoted Message) حاصل کریں
+	// 2. Extract Quoted Message
 	quoted := v.Message.GetExtendedTextMessage().GetContextInfo().GetQuotedMessage()
 	if quoted == nil {
-		replyMessage(client, v, "❌ میسج نہیں مل سکا!")
+		msg := `╔═══════════════════╗
+║  ❌ NOT FOUND       
+╠═══════════════════╣
+║ Could not find the  
+║ original message    
+╚═══════════════════╝`
+		replyMessage(client, v, msg)
 		return
 	}
 
-	// 3. میڈیا میسج کو نکالیں (View Once ہو یا نارمل)
+	// 3. Resolve Media (Handle View Once Nesting)
 	var (
 		img   = quoted.GetImageMessage()
 		vid   = quoted.GetVideoMessage()
@@ -440,7 +453,6 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 		isV2  = quoted.GetViewOnceMessageV2().GetMessage()
 	)
 
-	// اگر View Once ہے تو اس کے اندر سے اصل میسج نکالیں
 	if isV1 != nil {
 		if isV1.ImageMessage != nil { img = isV1.ImageMessage }
 		if isV1.VideoMessage != nil { vid = isV1.VideoMessage }
@@ -449,75 +461,90 @@ func handleVV(client *whatsmeow.Client, v *events.Message) {
 		if isV2.VideoMessage != nil { vid = isV2.VideoMessage }
 	}
 
-	// 4. میڈیا ڈاؤن لوڈ اور ری-اپلوڈ کریں
+	// 4. Download and Prepare Message
 	var (
 		data []byte
 		err  error
-		msgToSend *waProto.Message
+		msgToSend = &waProto.Message{}
+		ctx = context.Background()
+		caption = "🫣 *MEDIA RETRIEVED*\n\n✅ Successfully copied the message"
 	)
 
-	ctx := context.Background()
-
 	if img != nil {
-		data, err = client.Download(img)
+		data, err = client.Download(ctx, img)
 		if err == nil {
 			up, _ := client.Upload(ctx, data, whatsmeow.MediaImage)
-			msgToSend = &waProto.Message{ImageMessage: &waProto.ImageMessage{
+			msgToSend.ImageMessage = &waProto.ImageMessage{
 				URL:           proto.String(up.URL),
 				DirectPath:    proto.String(up.DirectPath),
 				MediaKey:      up.MediaKey,
 				Mimetype:      proto.String("image/jpeg"),
 				FileEncSHA256: up.FileEncSHA256,
 				FileSHA256:    up.FileSHA256,
-				Caption:       proto.String("🫣 Image Retrieved"),
-			}}
+				Caption:       proto.String(caption),
+				ContextInfo: &waProto.ContextInfo{
+					StanzaID:      proto.String(v.Info.ID),
+					Participant:   proto.String(v.Info.Sender.String()),
+					QuotedMessage: v.Message,
+				},
+			}
 		}
 	} else if vid != nil {
-		data, err = client.Download(vid)
+		data, err = client.Download(ctx, vid)
 		if err == nil {
 			up, _ := client.Upload(ctx, data, whatsmeow.MediaVideo)
-			msgToSend = &waProto.Message{VideoMessage: &waProto.VideoMessage{
+			msgToSend.VideoMessage = &waProto.VideoMessage{
 				URL:           proto.String(up.URL),
 				DirectPath:    proto.String(up.DirectPath),
 				MediaKey:      up.MediaKey,
 				Mimetype:      proto.String("video/mp4"),
 				FileEncSHA256: up.FileEncSHA256,
 				FileSHA256:    up.FileSHA256,
-				Caption:       proto.String("🫣 Video Retrieved"),
-			}}
+				Caption:       proto.String(caption),
+				ContextInfo: &waProto.ContextInfo{
+					StanzaID:      proto.String(v.Info.ID),
+					Participant:   proto.String(v.Info.Sender.String()),
+					QuotedMessage: v.Message,
+				},
+			}
 		}
 	} else if aud != nil {
-		data, err = client.Download(aud)
+		data, err = client.Download(ctx, aud)
 		if err == nil {
 			up, _ := client.Upload(ctx, data, whatsmeow.MediaAudio)
-			msgToSend = &waProto.Message{AudioMessage: &waProto.AudioMessage{
+			msgToSend.AudioMessage = &waProto.AudioMessage{
 				URL:           proto.String(up.URL),
 				DirectPath:    proto.String(up.DirectPath),
 				MediaKey:      up.MediaKey,
 				Mimetype:      proto.String("audio/ogg; codecs=opus"),
 				FileEncSHA256: up.FileEncSHA256,
 				FileSHA256:    up.FileSHA256,
-				Ptt:           proto.Bool(true), // وائس نوٹ کے طور پر بھیجنے کے لیے
-			}}
+				PTT:           proto.Bool(true), // Fixed to PTT
+				ContextInfo: &waProto.ContextInfo{
+					StanzaID:      proto.String(v.Info.ID),
+					Participant:   proto.String(v.Info.Sender.String()),
+					QuotedMessage: v.Message,
+				},
+			}
 		}
 	}
 
-	// 5. اگر میڈیا مل گیا اور ڈاؤن لوڈ ہو گیا تو بھیج دیں
-	if err != nil || msgToSend == nil {
-		replyMessage(client, v, "❌ میڈیا ڈاؤن لوڈ نہیں ہو سکا یا سپورٹڈ نہیں ہے")
+	// 5. Check if we have a valid message to send
+	if err != nil || (msgToSend.ImageMessage == nil && msgToSend.VideoMessage == nil && msgToSend.AudioMessage == nil) {
+		msg := `╔═══════════════════╗
+║  ❌ ERROR FAILED    
+╠═══════════════════╣
+║ Could not download 
+║ or upload media    
+╚═══════════════════╝`
+		replyMessage(client, v, msg)
 		return
 	}
 
-	// کوٹیشن (Reply) کے ساتھ میسج بھیجیں
-	msgToSend.GetImageMessage().ContextInfo = &waProto.ContextInfo{
-		StanzaID:      proto.String(v.Info.ID),
-		Participant:   proto.String(v.Info.Sender.String()),
-		QuotedMessage: v.Message,
-	}
-	// (نوٹ: اگر ویڈیو یا آڈیو ہے تو وہاں بھی ContextInfo سیٹ کر لیں اسی طرح)
-
+	// Final Send
 	client.SendMessage(ctx, v.Info.Chat, msgToSend)
 }
+
 
 
 // ==================== میڈیا ہیلپرز ====================
