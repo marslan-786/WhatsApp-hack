@@ -272,26 +272,15 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleToImg(client, v)
 	case "tovideo":
 		handleToVideo(client, v)
-	case "removebg":
-		handleRemoveBG(client, v)
-	case "remini":
 		handleRemini(client, v)
 	case "tourl":
 		handleToURL(client, v)
-	case "weather":
-		handleWeather(client, v, fullArgs)
 	case "translate", "tr":
 		handleTranslate(client, v, args)
 	case "vv":
 		handleVV(client, v)
 	case "sd":
 		handleSessionDelete(client, v, args)
-	case "tiktok", "tt":
-		handleTikTok(client, v, fullArgs)
-	case "fb", "facebook":
-		handleFacebook(client, v, fullArgs)
-	case "insta", "ig":
-		handleInstagram(client, v, fullArgs)
 	case "yts":
 		handleYTS(client, v, fullArgs)
 	case "ytmp4":

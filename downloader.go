@@ -889,25 +889,12 @@ func handleOkRu(client *whatsmeow.Client, v *events.Message, url string) {
 }
 
 // 12. 🇨🇳 BILIBILI
-func handleBilibili(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "💮")
-	sendPremiumCard(client, v, "Anime/Video", "Bilibili", "Lantern Grabbing Bilibili Stream...")
-	go downloadAndSend(client, v, url, "video")
-}
 
 // 13. 📱 LIKEE (No Watermark)
-func handleLikee(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "🌈")
-	sendPremiumCard(client, v, "Likee Video", "Likee", "✨ Removing Watermark...")
-	go downloadAndSend(client, v, url, "video")
-}
+
 
 // 14. 🎞️ KWAI
-func handleKwai(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "🎞️")
-	sendPremiumCard(client, v, "Kwai Short", "Kwai", "⚡ Fast Extraction Active...")
-	go downloadAndSend(client, v, url, "video")
-}
+
 
 // 15. 🤣 9GAG
 func handle9Gag(client *whatsmeow.Client, v *events.Message, url string) {
@@ -917,11 +904,6 @@ func handle9Gag(client *whatsmeow.Client, v *events.Message, url string) {
 }
 
 // 16. 🤡 IFUNNY
-func handleIfunny(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "🤡")
-	sendPremiumCard(client, v, "Funny Clip", "iFunny", "🤣 Laughing and Downloading...")
-	go downloadAndSend(client, v, url, "video")
-}
 
 // 17. 🎓 TED TALKS
 func handleTed(client *whatsmeow.Client, v *events.Message, url string) {
@@ -931,11 +913,8 @@ func handleTed(client *whatsmeow.Client, v *events.Message, url string) {
 }
 
 // 18. 🎮 STEAM (Trailers)
-func handleSteam(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "🎮")
-	sendPremiumCard(client, v, "Game Trailer", "Steam", "🕹️ Fetching Valve's Media...")
-	go downloadAndSend(client, v, url, "video")
-}
+
+
 
 // 19. 💻 GITHUB (Source Zip/Release)
 func handleGithub(client *whatsmeow.Client, v *events.Message, url string) {
@@ -980,11 +959,6 @@ func handleFlickr(client *whatsmeow.Client, v *events.Message, url string) {
 }
 
 // 25. 🟢 SPOTIFY (Preview)
-func handleSpotify(client *whatsmeow.Client, v *events.Message, url string) {
-	react(client, v.Info.Chat, v.Info.ID, "🟢")
-	sendPremiumCard(client, v, "Spotify Music", "Spotify", "🎵 Extracting Preview Clip...")
-	go downloadAndSend(client, v, url, "audio")
-}
 
 // 26. 🍎 APPLE MUSIC (Preview)
 func handleAppleMusic(client *whatsmeow.Client, v *events.Message, url string) {
