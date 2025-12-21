@@ -139,6 +139,35 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 
 	fullArgs := strings.Join(args, " ")
 	fmt.Printf("📩 CMD: %s | User: %s | Chat: %s\n", cmd, v.Info.Sender.User, v.Info.Chat.User)
+	
+// ٹک ٹاک آپشنز ہینڈل کرنا
+	bodyClean := strings.TrimSpace(getText(v.Message))
+	senderID := v.Info.Sender.String()
+
+	if state, exists := ttCache[senderID]; exists {
+		if bodyClean == "1" {
+			delete(ttCache, senderID) // استعمال کے بعد صاف کریں
+			react(client, v.Info.Chat, v.Info.ID, "🎬")
+			sendVideo(client, v, state.PlayURL, "🎬 *TikTok Video*\n\n✅ Downloaded")
+			return // آگے نہیں بڑھنا
+		} else if bodyClean == "2" {
+			delete(ttCache, senderID)
+			react(client, v.Info.Chat, v.Info.ID, "🎵")
+			sendDocument(client, v, state.MusicURL, "tiktok_audio.mp3", "audio/mpeg")
+			return
+		} else if bodyClean == "3" {
+			delete(ttCache, senderID)
+			infoMsg := fmt.Sprintf(`╔═══════════════════╗
+║ 📄 TIKTOK INFO      
+╠═══════════════════╣
+║ 📝 Title: %s
+║ 📊 Size: %.2f MB
+║ ✨ Status: Success
+╚═══════════════════╝`, state.Title, float64(state.Size)/(1024*1024))
+			replyMessage(client, v, infoMsg)
+			return
+		}
+	}
 
 	switch cmd {
 	case "menu", "help", "list":
