@@ -601,22 +601,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║  ╰───────────────────╯
 ║                             
 ║  ╭──── SETTINGS ───╮
-║  │ 🔸 *%saddstatus* 
-║  │ 🔸 *%salwaysonline* 
-║  │ 🔸 *%santilink* 
-║  │ 🔸 *%santipic* 
-║  │ 🔸 *%santisticker* 
-║  │ 🔸 *%santivideo* 
-║  │ 🔸 *%sautoreact* 
-║  │ 🔸 *%sautoread* 
-║  │ 🔸 *%sautostatus* 
-║  │ 🔸 *%sdelstatus* 
-║  │ 🔸 *%sliststatus* 
-║  │ 🔸 *%smode* 
-║  │ 🔸 *%sowner* 
-║  │ 🔸 *%sreadallstatus* 
-║  │ 🔸 *%sstatusreact* 
-║  ╰─────────────────╯
+║  │ 🔸 *%saddstatus* ║  │ 🔸 *%salwaysonline* ║  │ 🔸 *%santilink* ║  │ 🔸 *%santipic* ║  │ 🔸 *%santisticker* ║  │ 🔸 *%santivideo* ║  │ 🔸 *%sautoreact* ║  │ 🔸 *%sautoread* ║  │ 🔸 *%sautostatus* ║  │ 🔸 *%sdelstatus* ║  │ 🔸 *%sliststatus* ║  │ 🔸 *%smode* ║  │ 🔸 *%sowner* ║  │ 🔸 *%sreadallstatus* ║  │ 🔸 *%sstatusreact* ║  ╰─────────────────╯
 ║                             
 ║  ╭─────── TOOLS ───────╮
 ║  │ 🔸 *%sdata* - DB Status

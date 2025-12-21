@@ -13,8 +13,9 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	
+	// ✅ مونگو ڈی بی نکال کر ریڈیس لائبریری شامل کر دی گئی ہے
+	"github.com/redis/go-redis/v9"
 )
 
 // ════════════════════════════════════════════════════════════════
@@ -31,8 +32,8 @@ type BotLIDInfo struct {
 }
 
 type LIDDatabase struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Count     int                    `json:"count"`
+	Timestamp time.Time             `json:"timestamp"`
+	Count     int                   `json:"count"`
 	Bots      map[string]BotLIDInfo `json:"bots"`
 }
 
@@ -83,7 +84,7 @@ func getSenderPhoneNumber(sender types.JID) string {
 // Run Node.js LID extractor as child process
 func runLIDExtractor() error {
 	fmt.Println("\n╔═══════════════════════════════════════╗")
-	fmt.Println("║   🔍 RUNNING LID EXTRACTOR           ║")
+	fmt.Println("║   🔍 RUNNING LID EXTRACTOR            ║")
 	fmt.Println("╚═══════════════════════════════════════╝\n")
 
 	// Check if Node.js is available
@@ -110,7 +111,6 @@ func runLIDExtractor() error {
 
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("⚠️ Extractor finished with warnings: %v\n", err)
-		// Don't return error - might be normal on first run
 	}
 
 	duration := time.Since(startTime).Seconds()
@@ -158,7 +158,7 @@ func loadLIDData() error {
 	if len(lidCache) > 0 {
 		fmt.Println("\n📊 Registered Bot LIDs:")
 		for phone, lid := range lidCache {
-			fmt.Printf("   📱 %s → 🆔 %s\n", phone, lid)
+			fmt.Printf("    📱 %s → 🆔 %s\n", phone, lid)
 		}
 		fmt.Println()
 	}
@@ -167,64 +167,57 @@ func loadLIDData() error {
 }
 
 // ════════════════════════════════════════════════════════════════
-// 💾 MONGODB INTEGRATION
+// 💾 REDIS INTEGRATION (REPLACED MONGODB)
 // ════════════════════════════════════════════════════════════════
 
-// Save LID to MongoDB
-func saveLIDToMongo(botInfo BotLIDInfo) error {
-	if mongoColl == nil {
-		return fmt.Errorf("mongodb not connected")
+// Save LID to Redis
+func saveLIDToRedis(botInfo BotLIDInfo) error {
+	if rdb == nil {
+		return fmt.Errorf("redis not connected")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Update or insert
-	filter := bson.M{"phone": botInfo.Phone}
-	update := bson.M{
-		"$set": bson.M{
-			"phone":       botInfo.Phone,
-			"lid":         botInfo.LID,
-			"platform":    botInfo.Platform,
-			"sessionId":   botInfo.SessionID,
-			"extractedAt": botInfo.ExtractedAt,
-			"lastUpdated": time.Now(),
-		},
-	}
-
-	opts := options.Update().SetUpsert(true)
-	_, err := mongoColl.UpdateOne(ctx, filter, update, opts)
-	
+	// ڈیٹا کو JSON میں بدلیں تاکہ ریڈیس میں محفوظ ہو سکے
+	botInfo.LastUpdated = time.Now()
+	jsonData, err := json.Marshal(botInfo)
 	if err != nil {
-		return fmt.Errorf("mongodb save failed: %v", err)
+		return fmt.Errorf("marshal failed: %v", err)
 	}
 
-	fmt.Printf("✅ Saved to MongoDB: %s → %s\n", botInfo.Phone, botInfo.LID)
+	// ریڈیس ہیش (Hash) استعمال کریں تاکہ تمام LIDs ایک جگہ رہیں
+	err = rdb.HSet(ctx, "bot_lids_store", botInfo.Phone, jsonData).Err()
+	if err != nil {
+		return fmt.Errorf("redis hset failed: %v", err)
+	}
+
+	fmt.Printf("✅ Saved to Redis: %s → %s\n", botInfo.Phone, botInfo.LID)
 	return nil
 }
 
-// Load all LIDs from MongoDB
-func loadLIDsFromMongo() error {
-	if mongoColl == nil {
-		return fmt.Errorf("mongodb not connected")
+// Load all LIDs from Redis
+func loadLIDsFromRedis() error {
+	if rdb == nil {
+		return fmt.Errorf("redis not connected")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cursor, err := mongoColl.Find(ctx, bson.M{})
+	// ریڈیس ہیش سے تمام ڈیٹا نکالیں
+	data, err := rdb.HGetAll(ctx, "bot_lids_store").Result()
 	if err != nil {
-		return fmt.Errorf("mongodb query failed: %v", err)
+		return fmt.Errorf("redis hgetall failed: %v", err)
 	}
-	defer cursor.Close(ctx)
 
 	lidCacheMutex.Lock()
 	defer lidCacheMutex.Unlock()
 
 	count := 0
-	for cursor.Next(ctx) {
+	for _, val := range data {
 		var botInfo BotLIDInfo
-		if err := cursor.Decode(&botInfo); err != nil {
+		if err := json.Unmarshal([]byte(val), &botInfo); err != nil {
 			continue
 		}
 		lidCache[botInfo.Phone] = botInfo.LID
@@ -232,14 +225,14 @@ func loadLIDsFromMongo() error {
 	}
 
 	if count > 0 {
-		fmt.Printf("✅ Loaded %d LID(s) from MongoDB\n", count)
+		fmt.Printf("✅ Loaded %d LID(s) from Redis\n", count)
 	}
 
 	return nil
 }
 
-// Sync LID data to MongoDB
-func syncLIDsToMongo() error {
+// Sync LID data to Redis
+func syncLIDsToRedis() error {
 	// Load from JSON first
 	data, err := os.ReadFile(lidDataFile)
 	if err != nil {
@@ -251,9 +244,9 @@ func syncLIDsToMongo() error {
 		return err
 	}
 
-	// Save each to MongoDB
+	// Save each to Redis
 	for _, botInfo := range lidDB.Bots {
-		if err := saveLIDToMongo(botInfo); err != nil {
+		if err := saveLIDToRedis(botInfo); err != nil {
 			fmt.Printf("⚠️ Failed to sync %s: %v\n", botInfo.Phone, err)
 		}
 	}
@@ -346,23 +339,19 @@ func sendOwnerStatus(client *whatsmeow.Client, v *events.Message) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// 📊 COMMAND: LIST REGISTERED BOTS
-// ════════════════════════════════════════════════════════════════
-
-// ════════════════════════════════════════════════════════════════
 // 🚀 INITIALIZATION SYSTEM
 // ════════════════════════════════════════════════════════════════
 
 // Initialize LID system (call this in main())
 func InitLIDSystem() {
 	fmt.Println("\n╔═══════════════════════════════════════╗")
-	fmt.Println("║   🔐 LID SYSTEM INITIALIZING         ║")
+	fmt.Println("║   🔐 LID SYSTEM INITIALIZING          ║")
 	fmt.Println("╚═══════════════════════════════════════╝\n")
 
-	// Step 1: Try to load from MongoDB first
-	fmt.Println("📊 Checking MongoDB for existing LIDs...")
-	if err := loadLIDsFromMongo(); err != nil {
-		fmt.Printf("⚠️ MongoDB load failed: %v\n", err)
+	// Step 1: Try to load from Redis first
+	fmt.Println("📊 Checking Redis for existing LIDs...")
+	if err := loadLIDsFromRedis(); err != nil {
+		fmt.Printf("⚠️ Redis load failed: %v\n", err)
 	}
 
 	// Step 2: Run Node.js extractor
@@ -377,10 +366,10 @@ func InitLIDSystem() {
 		fmt.Printf("⚠️ Load error: %v\n", err)
 	}
 
-	// Step 4: Sync to MongoDB
-	if mongoColl != nil {
-		fmt.Println("💾 Syncing to MongoDB...")
-		if err := syncLIDsToMongo(); err != nil {
+	// Step 4: Sync to Redis
+	if rdb != nil {
+		fmt.Println("💾 Syncing to Redis...")
+		if err := syncLIDsToRedis(); err != nil {
 			fmt.Printf("⚠️ Sync error: %v\n", err)
 		}
 	}
@@ -429,9 +418,9 @@ func OnNewPairing(client *whatsmeow.Client) {
 		return
 	}
 	
-	// Sync to MongoDB
-	if mongoColl != nil {
-		syncLIDsToMongo()
+	// Sync to Redis
+	if rdb != nil {
+		syncLIDsToRedis()
 	}
 	
 	botPhone := getBotPhoneNumber(client)

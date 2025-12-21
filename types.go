@@ -8,7 +8,7 @@ import (
 // --- ⚙️ CONFIGURATION ---
 const (
 	BOT_NAME   = "IMPOSSIBLE BOT V4"
-	OWNER_NAME = "Nothing Is Impossible"
+	OWNER_NAME = "Nothing Is Impossible 🜲"
 )
 
 // --- 💾 DATA STRUCTURES ---
