@@ -30,13 +30,7 @@ type YTState struct {
 	SenderID string
 }
 
-// نوٹ: اگر types.go میں TTState پہلے سے ہے، تو نیچے والی 6 لائنیں ڈیلیٹ کر دیں
-type TTState struct {
-	Title    string
-	PlayURL  string
-	MusicURL string
-	Size     int64
-}
+// اگر types.go میں TTState موجود ہے تو اسے یہاں سے ہٹا دیں
 
 var ytCache = make(map[string][]YTSResult)
 var ytDownloadCache = make(map[string]YTState)
@@ -57,11 +51,11 @@ func sendPremiumCard(client *whatsmeow.Client, v *events.Message, title, site, i
 	replyMessage(client, v, card)
 }
 
-// 🚀 ماسٹر میڈیا انجن (The Scientific Burner Logic)
+// 🚀 ہیوی ڈیوٹی میڈیا انجن (The Scientific Power)
 func downloadAndSend(client *whatsmeow.Client, v *events.Message, urlStr string, mode string) {
 	react(client, v.Info.Chat, v.Info.ID, "⏳")
 	
-	fileName := fmt.Sprintf("media_%d", time.Now().UnixNano())
+	fileName := fmt.Sprintf("temp_%d", time.Now().UnixNano())
 	var args []string
 
 	if mode == "audio" {
@@ -69,61 +63,44 @@ func downloadAndSend(client *whatsmeow.Client, v *events.Message, urlStr string,
 		args = []string{"-f", "bestaudio", "--extract-audio", "--audio-format", "mp3", "-o", fileName, urlStr}
 	} else {
 		fileName += ".mp4"
-		// 720p limit for WhatsApp stability, high quality encoding
 		args = []string{"-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", "--merge-output-format", "mp4", "-o", fileName, urlStr}
 	}
 
-	// 1. سرور پر ڈاؤن لوڈنگ (No API reliance)
+	// 1. سرور پر رینڈرنگ
 	cmd := exec.Command("yt-dlp", args...)
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("❌ [DLP-ERR] %v\n", err)
-		replyMessage(client, v, "❌ Process failed. Link might be broken or private.")
+		replyMessage(client, v, "❌ Media processing failed. The link might be broken or private.")
 		return
 	}
 
-	// 2. بائٹس ریڈنگ لاجک
+	// 2. بائٹس میں پڑھنا اور اپلوڈ (The Core Logic)
 	fileData, err := os.ReadFile(fileName)
 	if err != nil { return }
 	defer os.Remove(fileName)
 
 	fileSize := uint64(len(fileData))
-	if fileSize > 100*1024*1024 {
-		replyMessage(client, v, "⚠️ File is too large (>100MB).")
-		return
-	}
-
-	// 3. واٹس ایپ اپلوڈ اور پروٹوکول میسج
 	mType := whatsmeow.MediaVideo
 	if mode == "audio" { mType = whatsmeow.MediaDocument }
 
 	up, err := client.Upload(context.Background(), fileData, mType)
 	if err != nil {
-		replyMessage(client, v, "❌ WhatsApp Upload Failed.")
+		replyMessage(client, v, "❌ WhatsApp upload failed.")
 		return
 	}
 
+	// 3. پروٹوکول میسج ڈیلیوری
 	var finalMsg waProto.Message
 	if mode == "audio" {
 		finalMsg.DocumentMessage = &waProto.DocumentMessage{
-			URL:           proto.String(up.URL),
-			DirectPath:    proto.String(up.DirectPath),
-			MediaKey:      up.MediaKey,
-			Mimetype:      proto.String("audio/mpeg"),
-			FileName:      proto.String("Impossible_Audio.mp3"),
-			FileLength:    proto.Uint64(fileSize),
-			FileSHA256:    up.FileSHA256,
-			FileEncSHA256: up.FileEncSHA256,
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
+			Mimetype: proto.String("audio/mpeg"), FileName: proto.String("Impossible_Audio.mp3"),
+			FileLength: proto.Uint64(fileSize), FileSHA256: up.FileSHA256, FileEncSHA256: up.FileEncSHA256,
 		}
 	} else {
 		finalMsg.VideoMessage = &waProto.VideoMessage{
-			URL:           proto.String(up.URL),
-			DirectPath:    proto.String(up.DirectPath),
-			MediaKey:      up.MediaKey,
-			Mimetype:      proto.String("video/mp4"),
-			Caption:       proto.String("✅ *Downloaded Successfully* \nPowered by *Impossible Power*"),
-			FileLength:    proto.Uint64(fileSize),
-			FileSHA256:    up.FileSHA256,
-			FileEncSHA256: up.FileEncSHA256,
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
+			Mimetype: proto.String("video/mp4"), Caption: proto.String("✅ *Downloaded Successfully*"),
+			FileLength: proto.Uint64(fileSize), FileSHA256: up.FileSHA256, FileEncSHA256: up.FileEncSHA256,
 		}
 	}
 
@@ -131,7 +108,179 @@ func downloadAndSend(client *whatsmeow.Client, v *events.Message, urlStr string,
 	react(client, v.Info.Chat, v.Info.ID, "✅")
 }
 
-// 📺 یوٹیوب سرچ اور مینو ہینڈلرز
+// ------------------- تمام ہینڈلرز (بھرے ہوئے!) -------------------
+
+// 📱 سوشل میڈیا
+func handleFacebook(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Facebook Video", "Facebook", "🎥 Extracting High Quality Content...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleInstagram(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Instagram Reel", "Instagram", "📸 Capturing Media...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleTikTok(client *whatsmeow.Client, v *events.Message, urlStr string) {
+	if urlStr == "" { return }
+	react(client, v.Info.Chat, v.Info.ID, "🎵")
+	apiUrl := "https://www.tikwm.com/api/?url=" + url.QueryEscape(urlStr)
+	var r struct { Code int `json:"code"`; Data struct { Play, Music, Title string; Size uint64 } `json:"data"` }
+	getJson(apiUrl, &r)
+	if r.Code == 0 {
+		ttCache[v.Info.Sender.String()] = TTState{PlayURL: r.Data.Play, MusicURL: r.Data.Music, Title: r.Data.Title, Size: int64(r.Data.Size)}
+		sendPremiumCard(client, v, "TikTok No-WM", "TikTok", fmt.Sprintf("📝 %s\n\n🔢 Reply 1 for Video | 2 for Audio", r.Data.Title))
+	}
+}
+
+func handleTwitter(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "X Video", "Twitter/X", "🐦 Speeding through X servers...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handlePinterest(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Pin Media", "Pinterest", "📌 Extracting Media Asset...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleThreads(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Threads Clip", "Threads", "🧵 Processing Thread...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleSnapchat(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Snap Content", "Snapchat", "👻 Capturing Snap Spotlight...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleReddit(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Reddit Post", "Reddit", "👽 Merging Audio & Video...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+// 📺 ویڈیو اور اسٹریمز
+func handleYoutubeVideo(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "YouTube HD", "YouTube", "🎬 Fetching 720p/1080p Stream...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleYoutubeAudio(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "YouTube MP3", "YouTube", "🎶 Converting to 320kbps Audio...")
+	go downloadAndSend(client, v, url, "audio")
+}
+
+func handleTwitch(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Twitch Clip", "Twitch", "🎮 Grabbing Stream Moment...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleDailyMotion(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "DailyMotion", "DailyMotion", "📺 Packing Video Stream...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleVimeo(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Vimeo Pro", "Vimeo", "✨ Professional Extraction...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleRumble(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Rumble Stream", "Rumble", "🥊 Fetching Rumble Media...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleBilibili(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Anime Video", "Bilibili", "💮 Accessing Bilibili Nodes...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleBitChute(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Alt Video", "BitChute", "🎞️ Extraction Started...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+// 🎵 میوزک پلیٹ فارمز
+func handleSoundCloud(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Music Track", "SoundCloud", "🎧 Ripping HQ Audio...")
+	go downloadAndSend(client, v, url, "audio")
+}
+
+func handleSpotify(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Spotify Track", "Spotify", "🎵 Extracting from Spotify...")
+	go downloadAndSend(client, v, url, "audio")
+}
+
+func handleAppleMusic(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Apple Preview", "AppleMusic", "🎶 Grabbing High-Fi Clip...")
+	go downloadAndSend(client, v, url, "audio")
+}
+
+func handleDeezer(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Deezer HQ", "Deezer", "🎼 Converting Track...")
+	go downloadAndSend(client, v, url, "audio")
+}
+
+func handleTidal(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Tidal Master", "Tidal", "💎 Fetching Lossless Audio...")
+	go downloadAndSend(client, v, url, "audio")
+}
+
+func handleMixcloud(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "DJ Mixset", "Mixcloud", "🎧 Extracting Long Set...")
+	go downloadAndSend(client, v, url, "audio")
+}
+
+func handleNapster(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Legacy Track", "Napster", "🎶 Downloading Music...")
+	go downloadAndSend(client, v, url, "audio")
+}
+
+func handleBandcamp(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Indie Music", "Bandcamp", "🎸 Grabbing Artist Track...")
+	go downloadAndSend(client, v, url, "audio")
+}
+
+// 🖼️ میڈیا اثاثے
+func handleImgur(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Imgur Media", "Imgur", "🖼️ Extracting Image/Video...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleGiphy(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Animated GIF", "Giphy", "🎞️ Rendering GIF Stream...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleFlickr(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "HQ Assets", "Flickr", "📸 Fetching Media...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handle9Gag(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Meme Video", "9Gag", "🤣 Grabbing Viral Content...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+func handleIfunny(client *whatsmeow.Client, v *events.Message, url string) {
+	sendPremiumCard(client, v, "Funny Media", "iFunny", "🤡 Processing Meme...")
+	go downloadAndSend(client, v, url, "video")
+}
+
+// 💻 ڈویلپر اور آرکائیو
+func handleGithub(client *whatsmeow.Client, v *events.Message, urlStr string) {
+	react(client, v.Info.Chat, v.Info.ID, "💻")
+	// گٹ ہب کے لئے مخصوص لاجک (ڈاؤن لوڈ زپ)
+	zipURL := urlStr + "/archive/refs/heads/main.zip"
+	sendPremiumCard(client, v, "Repo Source", "GitHub", "📁 Packing Repository ZIP...")
+	sendDocument(client, v, zipURL, "Source_Code.zip", "application/zip")
+}
+
+func handleArchive(client *whatsmeow.Client, v *events.Message, urlStr string) {
+	sendPremiumCard(client, v, "Web Archive", "Archive.org", "🏛️ Fetching Wayback Machine Data...")
+	go downloadAndSend(client, v, urlStr, "video")
+}
+
+// 📺 یوٹیوب سرچ اور مینو (YTS)
 func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 	if query == "" { return }
 	react(client, v.Info.Chat, v.Info.ID, "🔍")
@@ -146,273 +295,31 @@ func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 		menuText += fmt.Sprintf("║ [%d] %s\n", (i/2)+1, lines[i])
 	}
 	ytCache[v.Info.Sender.String()] = results
-	menuText += "╚════════════════════╝"
-	replyMessage(client, v, menuText)
+	replyMessage(client, v, menuText+"╚════════════════════╝")
 }
 
 func handleYTDownloadMenu(client *whatsmeow.Client, v *events.Message, ytUrl string) {
-	titleCmd := exec.Command("yt-dlp", "--get-title", ytUrl)
-	titleOut, _ := titleCmd.Output()
-	title := strings.TrimSpace(string(titleOut))
-	ytDownloadCache[v.Info.Chat.String()] = YTState{Url: ytUrl, Title: title, SenderID: v.Info.Sender.String()}
-	menu := fmt.Sprintf("╔════════════════════╗\n║  🎬 VIDEO SELECTOR \n╠════════════════════╣\n║ %s\n║\n║ [1] 360p | [2] 720p\n║ [3] 1080p| [4] Audio\n╚════════════════════╝", title)
-	replyMessage(client, v, menu)
+	ytDownloadCache[v.Info.Chat.String()] = YTState{Url: ytUrl, Title: "YouTube Media", SenderID: v.Info.Sender.String()}
+	replyMessage(client, v, "╔════════════════════╗\n║  🎬 VIDEO SELECTOR \n╠════════════════════╣\n║ [1] 360p | [2] 720p\n║ [3] 1080p| [4] MP3\n╚════════════════════╝")
 }
 
 func handleYTDownload(client *whatsmeow.Client, v *events.Message, ytUrl, format string, isAudio bool) {
-	mode := "video"
-	if isAudio { mode = "audio" }
-	go downloadAndSend(client, v, ytUrl, mode)
+	m := "video"; if isAudio { m = "audio" }; go downloadAndSend(client, v, ytUrl, m)
 }
 
-// 📱 مین سوشل میڈیا ہینڈلرز
-
-func handleTikTok(client *whatsmeow.Client, v *events.Message, urlStr string) {
-	if urlStr == "" { return }
-	react(client, v.Info.Chat, v.Info.ID, "🎵")
-	encodedURL := url.QueryEscape(strings.TrimSpace(urlStr))
-	apiUrl := "https://www.tikwm.com/api/?url=" + encodedURL
-	var r struct {
-		Code int `json:"code"`
-		Data struct {
-			Play string `json:"play"`
-			Music string `json:"music"`
-			Title string `json:"title"`
-			Size uint64 `json:"size"`
-		} `json:"data"`
-	}
-	getJson(apiUrl, &r)
-	if r.Code == 0 {
-		ttCache[v.Info.Sender.String()] = TTState{
-			PlayURL: r.Data.Play, MusicURL: r.Data.Music, Title: r.Data.Title, Size: int64(r.Data.Size),
-		}
-		sendPremiumCard(client, v, "TikTok", "TikTok", fmt.Sprintf("📝 %s\n\n🔢 Reply 1 for Video | 2 for Audio", r.Data.Title))
-	}
-}
-
-func handleFacebook(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Facebook", "Facebook", "🎥 Extracting HD Video...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleInstagram(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Instagram", "Instagram", "📸 Capturing Reel/Post...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleTwitter(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "X Video", "Twitter/X", "🐦 Speeding through X...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handlePinterest(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Pinterest", "Pinterest", "📌 Extracting Media...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-// 📂 وہ فنکشنز جو پہلے خالی تھے (اب مکمل لوجک کے ساتھ)
-
-func handleThreads(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Threads", "Threads", "🧵 Processing Content...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleSnapchat(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Snapchat", "Snapchat", "👻 Capturing Spotlight...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleReddit(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Reddit", "Reddit", "👽 Merging Audio & Video...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleTwitch(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Twitch", "Twitch", "🎮 Grabbing Live Clip...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleDailyMotion(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "DailyMotion", "DailyMotion", "📺 Fetching Stream...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleVimeo(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Vimeo", "Vimeo", "💠 Professional Extraction...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleRumble(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Rumble", "Rumble", "🥊 Extracting Stream...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleBilibili(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Bilibili", "Bilibili", "💮 Fetching Anime Stream...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleSoundCloud(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "SoundCloud", "SoundCloud", "🎧 Ripping HQ Audio...")
-	go downloadAndSend(client, v, url, "audio")
-}
-
-func handleSpotify(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Spotify", "Spotify", "🎵 Extracting Track...")
-	go downloadAndSend(client, v, url, "audio")
-}
-
-func handleAppleMusic(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Apple Music", "AppleMusic", "🎶 Grabbing High-Fidelity Clip...")
-	go downloadAndSend(client, v, url, "audio")
-}
-
-func handleDeezer(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Deezer", "Deezer", "🎼 Fetching Deezer Track...")
-	go downloadAndSend(client, v, url, "audio")
-}
-
-func handleTidal(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Tidal", "Tidal", "🌀 Fetching HQ Audio...")
-	go downloadAndSend(client, v, url, "audio")
-}
-
-func handleMixcloud(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Mixcloud", "Mixcloud", "🎧 Extracting Mixset...")
-	go downloadAndSend(client, v, url, "audio")
-}
-
-func handleNapster(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Napster", "Napster", "🎶 Downloading Music...")
-	go downloadAndSend(client, v, url, "audio")
-}
-
-func handleBandcamp(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Bandcamp", "Bandcamp", "🎸 Extracting Indie Track...")
-	go downloadAndSend(client, v, url, "audio")
-}
-
-func handleImgur(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Imgur", "Imgur", "🖼️ Extracting Media...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleGiphy(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Giphy", "Giphy", "🌠 Grabbing GIF...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleFlickr(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Flickr", "Flickr", "📸 Fetching Photo/Video...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handle9Gag(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "9Gag", "9Gag", "🤣 Grabbing Meme Video...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleIfunny(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "iFunny", "iFunny", "🤡 Fetching Meme...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleTed(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "TED", "TED", "💡 Extracting Knowledge...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleSteam(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Steam", "Steam", "🎮 Grabbing Game Media...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleArchive(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Web Archive", "Archive.org", "🏛️ Fetching Archived Media...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleBitChute(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "BitChute", "BitChute", "🎞️ Fetching Alt Video...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleDouyin(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Douyin", "Douyin", "🇨🇳 Fetching Chinese Content...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleKwai(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Kwai", "Kwai", "🎞️ Processing Kwai Media...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleLikee(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Likee", "Likee", "🌈 Removing Watermark...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleCapCut(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "CapCut", "CapCut", "✂️ Exporting Clean Template...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleLinkedIn(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "LinkedIn", "LinkedIn", "💼 Processing Professional Video...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleUniversal(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Universal", "All-Sites", "🌀 Scanning 1000+ Sources...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleMega(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "Mega", "Engine", "🚀 Fetching Heavy Content...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleYouTubeMP3(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "YT MP3", "YouTube", "🎵 Converting to 320kbps...")
-	go downloadAndSend(client, v, url, "audio")
-}
-
-func handleYouTubeMP4(client *whatsmeow.Client, v *events.Message, url string) {
-	sendPremiumCard(client, v, "YT MP4", "YouTube", "📺 Fetching High Quality...")
-	go downloadAndSend(client, v, url, "video")
-}
-
-func handleGithub(client *whatsmeow.Client, v *events.Message, url string) {
-	replyMessage(client, v, "📁 *GitHub Link:* "+url+"\n\nProcessing repository files...")
-}
-
-// --- مددگار فنکشنز ---
+// ------------------- مددگار فنکشنز (Helpers) -------------------
 
 func getJson(url string, target interface{}) error {
-	r, err := http.Get(url)
-	if err != nil { return err }
-	defer r.Body.Close()
+	r, err := http.Get(url); if err != nil { return err }; defer r.Body.Close()
 	return json.NewDecoder(r.Body).Decode(target)
 }
 
-func sendTikTokVideo(client *whatsmeow.Client, v *events.Message, videoURL, caption string, size uint64) {
+func sendVideo(client *whatsmeow.Client, v *events.Message, videoURL, caption string) {
 	go downloadAndSend(client, v, videoURL, "video")
 }
 
-func sendImage(client *whatsmeow.Client, v *events.Message, imageURL, caption string) {
-	resp, _ := http.Get(imageURL)
-	data, _ := io.ReadAll(resp.Body)
-	up, _ := client.Upload(context.Background(), data, whatsmeow.MediaImage)
-	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
-		ImageMessage: &waProto.ImageMessage{
-			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
-			Mimetype: proto.String("image/jpeg"), FileLength: proto.Uint64(uint64(len(data))), Caption: proto.String(caption),
-		},
-	})
-}
-
 func sendDocument(client *whatsmeow.Client, v *events.Message, docURL, name, mime string) {
-	resp, _ := http.Get(docURL)
+	resp, err := http.Get(docURL); if err != nil { return }; defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	up, _ := client.Upload(context.Background(), data, whatsmeow.MediaDocument)
 	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
