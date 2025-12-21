@@ -468,12 +468,17 @@ func canExecute(client *whatsmeow.Client, v *events.Message, cmd string) bool {
 }
 
 func sendOwner(client *whatsmeow.Client, v *events.Message) {
-	senderClean := getCleanID(v.Info.Sender.String())
-	rawBotID := client.Store.ID.User
-	botID := botCleanIDCache[rawBotID]
-	if botID == "" { botID = getCleanID(rawBotID) }
+	// 1. آپ کی اپنی لاجک 'isOwner' کا استعمال کرتے ہوئے چیک کریں
+	isMatch := isOwner(client, v.Info.Sender)
 	
-	isMatch := (senderClean == botID)
+	// 2. کارڈ پر دکھانے کے لیے کلین آئی ڈیز حاصل کریں
+	// بوٹ کی LID آپ کے فنکشن 'getBotLIDFromDB' سے
+	botLID := getBotLIDFromDB(client)
+	
+	// سینڈر کی LID براہ راست نکال کر صاف کریں
+	senderLID := getCleanID(v.Info.Sender.User)
+	
+	// 3. اسٹیٹس اور ایموجی سیٹ کریں
 	status := "❌ NOT Owner"
 	emoji := "🚫"
 	if isMatch {
@@ -481,24 +486,26 @@ func sendOwner(client *whatsmeow.Client, v *events.Message) {
 		emoji = "👑"
 	}
 	
+	// 📊 سرور لاگز میں آپ کی لاجک کا رزلٹ دکھانا
 	fmt.Printf(`
 ╔═════════════════════════╗
-║ 🎯 OWNER COMMAND TRIGGERED
+║ 🎯 LID OWNER CHECK (STRICT)
 ╠═════════════════════════╣
-║ 👤 Sender Clean : %s
-║ 🆔 Bot LID Clean: %s
-║ ✅ Is Owner     : %v
-╚═══════════════════════════════════╝
-`, senderClean, botID, isMatch)
+║ 👤 Sender LID   : %s
+║ 🆔 Bot LID DB   : %s
+║ ✅ Verification : %v
+╚═════════════════════════╝
+`, senderLID, botLID, isMatch)
 	
+	// 💬 واٹس ایپ پر پریمیم کارڈ
 	msg := fmt.Sprintf(`╔═══════════════════╗
 ║ %s OWNER VERIFICATION
 ╠═══════════════════╣
-║ 🆔 Bot ID  : %s
-║ 👤 Your ID : %s
+║ 🆔 Bot LID  : %s
+║ 👤 Your LID : %s
 ╠═══════════════════╣
 ║ 📊 Status: %s
-╚═══════════════════╝`, emoji, botID, senderClean, status)
+╚═══════════════════╝`, emoji, botLID, senderLID, status)
 	
 	replyMessage(client, v, msg)
 }
