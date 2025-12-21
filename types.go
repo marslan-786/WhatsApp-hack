@@ -23,7 +23,8 @@ type GroupSettings struct {
 	AntiSticker    bool           `bson:"antisticker" json:"antisticker"`
 	Warnings       map[string]int `bson:"warnings" json:"warnings"`
 }
-type TikTokState struct {
+// ✅ نام کو TikTokState سے بدل کر TTState کر دیا گیا ہے
+type TTState struct {
 	Title    string
 	PlayURL  string
 	MusicURL string
