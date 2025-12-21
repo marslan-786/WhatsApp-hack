@@ -15,7 +15,6 @@ import (
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"google.golang.org/protobuf/proto"
 	"runtime"
-	"time"
 )
 
 // 🛡️ گلوبل کیش (تاکہ commands.go کو مل سکیں)

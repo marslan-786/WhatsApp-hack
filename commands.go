@@ -283,10 +283,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleSessionDelete(client, v, args)
 	case "yts":
 		handleYTS(client, v, fullArgs)
-	case "ytmp4":
-		handleYTDownloadMenu(client, v, fullArgs)
-	case "ytmp3":
-		handleYTDownload(client, v, fullArgs, "mp3", true)
     // 📥 سوشل میڈیا ڈاؤنلوڈرز (Social Media Atom Bombs)
 	case "fb", "facebook":
 		handleFacebook(client, v, fullArgs)
@@ -358,7 +354,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleServerStats(client, v)
 	case "speed", "speedtest":
 		handleSpeedTest(client, v)
-	case "ss", "snap", "screenshot":
+	case "ss", "screenshot":
 		handleScreenshot(client, v, fullArgs)
 	case "ai", "chat", "impossible":
 		handleAI(client, v, fullArgs)
