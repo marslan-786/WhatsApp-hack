@@ -23,6 +23,8 @@ var (
 	globalClient *whatsmeow.Client
 	persistentUptime int64
 	dbContainer *sqlstore.Container
+	botPrefixes = make(map[string]string) 
+    prefixMutex sync.RWMutex
 )
 
 func handler(botClient *whatsmeow.Client, evt interface{}) {
@@ -73,20 +75,31 @@ func isKnownCommand(text string) bool {
 
 func processMessage(client *whatsmeow.Client, v *events.Message) {
 	// 1. بنیادی ویری ایبلز (صرف ایک بار ڈکلیئر کریں)
+	botID := getBotLIDFromDB(client)
 	chatID := v.Info.Chat.String()
 	senderID := v.Info.Sender.String()
 	isGroup := v.Info.IsGroup
 	bodyRaw := getText(v.Message)
+	bodyClean := strings.TrimSpace(bodyRaw)
 	
-// 🛠️ یوٹیوب اور ٹک ٹاک سلیکشن ہینڈلر
-	bodyClean := strings.TrimSpace(getText(v.Message))
+	// اس بوٹ کا مخصوص پریفکس حاصل کریں
+	prefix := getPrefix(botID)
 
-	// 1. یوٹیوب سرچ رزلٹ سلیکشن (Reply with 1-5)
+	// 🛠️ اسپیڈ بوسٹ فلٹر (Early Exit)
+	// اگر پریفکس نہیں ہے اور یہ کوئی ایکٹیو سلیکشن بھی نہیں ہے، تو بوٹ یہیں رک جائے گا
+	_, isTT := ttCache[senderID]
+	_, isYTS := ytCache[senderID]
+	_, isYTSelect := ytDownloadCache[chatID]
+	isSetup := false
+	if _, ok := setupMap[senderID]; ok && setupMap[senderID].GroupID == chatID { isSetup = true }
 
+	if !strings.HasPrefix(bodyClean, prefix) && !isTT && !isYTS && !isYTSelect && !isSetup && chatID != "status@broadcast" {
+		return // 🚀 سپیڈ فکس: فالتو میسجز پر بوٹ خاموش رہے گا
+	}
 
 	// 2. سیٹ اپ رسپانس ہینڈلر
-	if state, ok := setupMap[senderID]; ok && state.GroupID == chatID {
-		handleSetupResponse(client, v, state)
+	if isSetup {
+		handleSetupResponse(client, v, setupMap[senderID])
 		return
 	}
 
@@ -104,7 +117,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// 4. آٹو ریڈ اور آٹو ری ایکٹ
+	// 4. آٹو ریڈ اور آٹو ری ایکٹ (صرف ان میسجز کے لیے جو فلٹر سے گزرے ہوں)
 	dataMutex.RLock()
 	if data.AutoRead {
 		client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
@@ -112,7 +125,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	if data.AutoReact {
 		react(client, v.Info.Chat, v.Info.ID, "❤️")
 	}
-	prefix := data.Prefix
 	dataMutex.RUnlock()
 
 	// 5. گروپ سیکیورٹی چیک
@@ -121,8 +133,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 
 	// 6. 🛠️ انٹرایکٹو آپشنز ہینڈلر (TikTok/YouTube Selection)
-	// یہ حصہ کمانڈز سے پہلے ہونا چاہیے تاکہ '1' یا '2' پکڑا جا سکے
-
 	// ٹک ٹاک سلیکشن
 	if state, exists := ttCache[senderID]; exists {
 		if bodyClean == "1" {
@@ -138,7 +148,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		} else if bodyClean == "3" {
 			delete(ttCache, senderID)
 			infoMsg := fmt.Sprintf(`╔═══════════════════╗
-║ 📄 TIKTOK INFO      
+║ 📄 TIKTOK INFO      
 ╠═══════════════════╣
 ║ 📝 Title: %s
 ║ 📊 Size: %.2f MB
@@ -149,20 +159,21 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 
+	// یوٹیوب سرچ سلیکشن
 	if results, exists := ytCache[senderID]; exists {
 		var idx int
 		fmt.Sscanf(bodyClean, "%d", &idx)
 		if idx >= 1 && idx <= len(results) {
 			selected := results[idx-1]
-			delete(ytCache, senderID) // سرچ کیش صاف کریں
-			handleYTDownloadMenu(client, v, selected.Url) // مینو دکھائیں
+			delete(ytCache, senderID)
+			handleYTDownloadMenu(client, v, selected.Url)
 			return
 		}
 	}
 
-	// 2. یوٹیوب فارمیٹ سلیکشن (360p, 720p, etc.)
+	// یوٹیوب فارمیٹ سلیکشن (Only for the person who started it)
 	if state, exists := ytDownloadCache[chatID]; exists {
-		if v.Info.Sender.String() != state.SenderID { return } // صرف وہی بندہ جس نے کمانڈ دی
+		if senderID != state.SenderID { return } // ٹوسٹ: دوسرے بندے کو اگنور کریں
 
 		if bodyClean == "1" || bodyClean == "2" || bodyClean == "3" {
 			delete(ytDownloadCache, chatID)
@@ -175,38 +186,36 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 
-	// 7. کمانڈ چیک (Prefix Logic)
-	if !strings.HasPrefix(bodyRaw, prefix) && !isKnownCommand(bodyRaw) {
-		return
-	}
-
-	cmd := strings.ToLower(bodyRaw)
-	args := []string{}
-
-	if strings.HasPrefix(cmd, prefix) {
-		split := strings.Fields(cmd[len(prefix):])
-		if len(split) > 0 {
-			cmd = split[0]
-			args = split[1:]
-		}
-	} else {
-		split := strings.Fields(cmd)
-		if len(split) > 0 {
-			cmd = split[0]
-			args = split[1:]
-		}
-	}
+	// 7. کمانڈ پارسنگ (Prefix Logic)
+	cmdBody := strings.ToLower(strings.TrimPrefix(bodyClean, prefix))
+	split := strings.Fields(cmdBody)
+	if len(split) == 0 { return }
+	cmd := split[0]
+	args := split[1:]
+	fullArgs := strings.Join(args, " ")
 
 	// 8. پرمیشن چیک
 	if !canExecute(client, v, cmd) {
 		return
 	}
 
-	fullArgs := strings.Join(args, " ")
-	fmt.Printf("📩 CMD: %s | User: %s | Chat: %s\n", cmd, v.Info.Sender.User, v.Info.Chat.User)
+	fmt.Printf("📩 [BOT: %s] CMD: %s | User: %s | Chat: %s\n", botID, cmd, v.Info.Sender.User, v.Info.Chat.User)
 
 	// 9. مین کمانڈ سوئچ (Switch Case)
 	switch cmd {
+	case "setprefix":
+		// صرف اونر پریفکس بدل سکتا ہے
+		if !isOwner(client, v.Info.Sender) {
+			replyMessage(client, v, "❌ Only Owner can change the prefix.")
+			return
+		}
+		if fullArgs == "" {
+			replyMessage(client, v, "⚠️ Please provide a prefix. Example: .setprefix !")
+			return
+		}
+		updatePrefixDB(botID, fullArgs)
+		replyMessage(client, v, fmt.Sprintf("✅ Prefix updated to [%s] for this bot instance.", fullArgs))
+
 	case "menu", "help", "list":
 		react(client, v.Info.Chat, v.Info.ID, "📜")
 		sendMenu(client, v)
@@ -243,7 +252,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	case "readallstatus":
 		handleReadAllStatus(client, v)
 	case "setprefix":
-		handleSetPrefix(client, v, args)
+		// یہ اوپر ہینڈل ہو چکا ہے، یہاں صرف ایرر سے بچنے کے لیے رکھا ہے
 	case "mode":
 		handleMode(client, v, args)
 	case "antilink":
@@ -299,12 +308,36 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	case "yts":
 		handleYTS(client, v, fullArgs)
 	case "ytmp4":
-		// اب یہ براہ راست ڈاؤن لوڈ کے بجائے مینو دکھائے گا تاکہ یوزر ریزولوشن چن سکے
 		handleYTDownloadMenu(client, v, fullArgs)
 	case "ytmp3":
-		// یہاں ہم نے 5 آرگیومنٹس پورے کر دیے ہیں (format کو "mp3" اور isAudio کو true کر دیا)
 		handleYTDownload(client, v, fullArgs, "mp3", true)
 	}
+}
+
+// ڈیٹا بیس سے پریفکس لوڈ کرنا
+func getPrefix(botID string) string {
+	prefixMutex.RLock()
+	p, exists := botPrefixes[botID]
+	prefixMutex.RUnlock()
+	if exists { return p }
+	return "." // Default
+}
+
+// ڈیٹا بیس میں پریفکس سیو کرنا
+func updatePrefixDB(botID string, newPrefix string) {
+	prefixMutex.Lock()
+	botPrefixes[botID] = newPrefix
+	prefixMutex.Unlock()
+	
+	// MongoDB میں سیو کریں تاکہ ری-ڈپلائے پر ری-سیٹ نہ ہو
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
+	filter := bson.M{"bot_id": botID}
+	update := bson.M{"$set": bson.M{"prefix": newPrefix}}
+	opts := options.Update().SetUpsert(true)
+	
+	mongoColl.UpdateOne(ctx, filter, update, opts)
 }
 
 func getCleanID(jidStr string) string {
@@ -709,7 +742,12 @@ func saveGroupSettings(s *GroupSettings) {
 }
 
 func ConnectNewSession(device *store.Device) {
-	botID := getCleanID(device.ID.User)
+	botID := getCleanID(device.ID.User)	
+	// ConnectNewSession کے اندر
+    //botID := getCleanID(device.ID.User)
+    prefixMutex.Lock()
+    botPrefixes[botID] = "." // ڈیفالٹ پریفکس
+    prefixMutex.Unlock()
 
 	// 🛡️ ڈپلیکیٹ چیک: اگر پہلے سے لسٹ میں ہے تو واپس چلے جاؤ
 	clientsMutex.RLock()
