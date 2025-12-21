@@ -24,15 +24,19 @@ import (
 )
 
 var (
-	client    *whatsmeow.Client
-	container *sqlstore.Container
-	rdb       *redis.Client 
-	ctx       = context.Background()
-	upgrader  = websocket.Upgrader{
+	client           *whatsmeow.Client
+	container        *sqlstore.Container
+	dbContainer      *sqlstore.Container  // ✅ یہ مسنگ تھا (FIXED)
+	rdb              *redis.Client 
+	ctx              = context.Background()
+	persistentUptime int64                // ✅ یہ مسنگ تھا (FIXED)
+	
+	upgrader         = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
 	wsClients = make(map[*websocket.Conn]bool)
 
+	// ⚡ الٹرا فاسٹ کیشنگ (صرف یہاں ڈیفائن ہوں گے)
 	botCleanIDCache = make(map[string]string)
 	botPrefixes     = make(map[string]string)
 	prefixMutex     sync.RWMutex
