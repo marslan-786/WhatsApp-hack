@@ -89,6 +89,9 @@ func main() {
 	http.HandleFunc("/api/pair", handlePairAPI)
 	http.HandleFunc("/link/pair/", handlePairAPILegacy)
 	http.HandleFunc("/link/delete", handleDeleteSession)
+	http.HandleFunc("/del/all", handleDelAllAPI)
+	http.HandleFunc("/del/", handleDelNumberAPI) // اس کے آخر میں سلیش ضروری ہے
+	
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -161,6 +164,67 @@ func broadcastWS(data interface{}) {
 	}
 }
 
+// 1. تمام سیشنز ڈیلیٹ کرنے کی اے پی آئی
+func handleDelAllAPI(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("🗑️ [API] Deleting all sessions...")
+	
+	// میموری سے کلائنٹس ڈس کنیکٹ کریں
+	clientsMutex.Lock()
+	for id, c := range activeClients {
+		fmt.Printf("🔌 Disconnecting: %s\n", id)
+		c.Disconnect()
+		delete(activeClients, id)
+	}
+	clientsMutex.Unlock()
+
+	// ڈیٹا بیس سے تمام ڈیوائسز اڑائیں
+	devices, _ := container.GetAllDevices(context.Background())
+	for _, dev := range devices {
+		dev.Delete(context.Background())
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"success":true, "message":"All sessions wiped from DB and memory"}`)
+}
+
+// 2. مخصوص نمبر کا سیشن ڈیلیٹ کرنے کی اے پی آئی (/del/92301...)
+func handleDelNumberAPI(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 3 {
+		http.Error(w, `{"error":"Number required"}`, 400)
+		return
+	}
+	targetNum := parts[2]
+	fmt.Printf("🗑️ [API] Deleting session for: %s\n", targetNum)
+
+	// میموری سے نکالیں
+	clientsMutex.Lock()
+	if c, ok := activeClients[getCleanID(targetNum)]; ok {
+		c.Disconnect()
+		delete(activeClients, getCleanID(targetNum))
+	}
+	clientsMutex.Unlock()
+
+	// ڈیٹا بیس سے نکالیں
+	devices, _ := container.GetAllDevices(context.Background())
+	deleted := false
+	for _, dev := range devices {
+		if getCleanID(dev.ID.User) == getCleanID(targetNum) {
+			dev.Delete(context.Background())
+			deleted = true
+			break
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if deleted {
+		fmt.Fprintf(w, `{"success":true, "message":"Session deleted for %s"}`, targetNum)
+	} else {
+		fmt.Fprintf(w, `{"success":false, "message":"No session found for %s"}`, targetNum)
+	}
+}
+
+
 func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, `{"error":"Method not allowed"}`, 405)
@@ -176,27 +240,38 @@ func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// نمبر کلین کریں
 	number := strings.TrimSpace(req.Number)
 	number = strings.ReplaceAll(number, "+", "")
 	number = strings.ReplaceAll(number, " ", "")
 	number = strings.ReplaceAll(number, "-", "")
+	cleanNum := getCleanID(number)
 
-	if len(number) < 10 {
-		http.Error(w, `{"error":"Invalid number"}`, 400)
-		return
+	fmt.Printf("📱 [PAIRING] New request for: %s\n", cleanNum)
+
+	// ✅ اہم سٹیپ: پہلے سے موجود سیشن چیک کریں اور ڈیلیٹ کریں
+	devices, _ := container.GetAllDevices(context.Background())
+	for _, dev := range devices {
+		if getCleanID(dev.ID.User) == cleanNum {
+			fmt.Printf("🧹 [CLEANUP] Removing old session for %s before re-pairing...\n", cleanNum)
+			
+			// میموری سے ہٹائیں
+			clientsMutex.Lock()
+			if c, ok := activeClients[cleanNum]; ok {
+				c.Disconnect()
+				delete(activeClients, cleanNum)
+			}
+			clientsMutex.Unlock()
+			
+			// ڈیٹا بیس سے ہٹائیں
+			dev.Delete(context.Background())
+		}
 	}
 
-	fmt.Printf("📱 Pairing: %s\n", number)
-
-	if client != nil && client.IsConnected() {
-		client.Disconnect()
-		time.Sleep(10 * time.Second)
-	}
-
+	// اب نیا ڈیوائس اور پیرنگ کوڈ بنائیں
 	newDevice := container.NewDevice()
 	tempClient := whatsmeow.NewClient(newDevice, waLog.Stdout("Pairing", "INFO", true))
 	
-	SetGlobalClient(tempClient)
 	tempClient.AddEventHandler(func(evt interface{}) {
         handler(tempClient, evt)
     })
@@ -207,23 +282,17 @@ func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	time.Sleep(10 * time.Second)
+	// تھوڑا انتظار کریں تاکہ کنکشن مستحکم ہو
+	time.Sleep(5 * time.Second)
 
-	code, err := tempClient.PairPhone(
-		context.Background(),
-		number,
-		true,
-		whatsmeow.PairClientChrome,
-		"Chrome (Linux)",
-	)
-
+	code, err := tempClient.PairPhone(context.Background(), number, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {
 		tempClient.Disconnect()
 		http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), 500)
 		return
 	}
 
-	fmt.Printf("✅ Code: %s\n", code)
+	fmt.Printf("✅ [CODE] Generated for %s: %s\n", cleanNum, code)
 
 	broadcastWS(map[string]interface{}{
 		"event": "pairing_code",
@@ -234,15 +303,10 @@ func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 		for i := 0; i < 60; i++ {
 			time.Sleep(1 * time.Second)
 			if tempClient.Store.ID != nil {
-				fmt.Println("✅ Paired!")
-				client = tempClient
-				
-				OnNewPairing(client)
-				
-				broadcastWS(map[string]interface{}{
-					"event":     "paired",
-					"connected": true,
-				})
+				fmt.Printf("🎉 [PAIRED] %s is now active!\n", cleanNum)
+				clientsMutex.Lock()
+				activeClients[cleanNum] = tempClient
+				clientsMutex.Unlock()
 				return
 			}
 		}
@@ -252,6 +316,7 @@ func handlePairAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"success":true,"code":"%s"}`, code)
 }
+
 
 func handlePairAPILegacy(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(r.URL.Path, "/")

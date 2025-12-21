@@ -630,48 +630,41 @@ func saveGroupSettings(s *GroupSettings) {
 }
 
 func ConnectNewSession(device *store.Device) {
-	// 1. کلائنٹ لاگ سیٹ اپ
-	clientLog := waLog.Stdout("Client", "DEBUG", true)
+	botID := getCleanID(device.ID.User)
+
+	// 🛡️ ڈپلیکیٹ چیک: اگر پہلے سے لسٹ میں ہے تو واپس چلے جاؤ
+	clientsMutex.RLock()
+	_, exists := activeClients[botID]
+	clientsMutex.RUnlock()
+	if exists {
+		fmt.Printf("⚠️ [MULTI-BOT] Bot %s is already connected. Skipping...\n", botID)
+		return
+	}
+
+	clientLog := waLog.Stdout("Client", "ERROR", true) // لاگز کم کر دیے تاکہ کریش نہ ہو
 	client := whatsmeow.NewClient(device, clientLog)
 	
-	// ❌ SetGlobalClient(client) -- اس لائن کو نکال دیا ہے کیونکہ یہ ملٹی بوٹ کے لیے غلط ہے
-
-	// 2. ہینڈلر رجسٹریشن (Closure استعمال کرتے ہوئے)
-	// اس سے ہر بوٹ کو اپنا 'client' ملے گا
 	client.AddEventHandler(func(evt interface{}) {
 		handler(client, evt)
 	})
 
-	botID := getCleanID(device.ID.User)
-	
-	// 3. کنکشن قائم کرنا
 	err := client.Connect()
 	if err != nil {
 		fmt.Printf("❌ [MULTI-BOT] نمبر %s کنیکٹ نہیں ہو سکا: %v\n", botID, err)
 		return
 	}
 
-	// 4. ایکٹو کلائنٹس کی لسٹ میں محفوظ کرنا (Safe Concurrency)
 	clientsMutex.Lock()
 	activeClients[botID] = client
 	clientsMutex.Unlock()
 
-	// 5. کامیابی کا میسج
-	lidStr := device.LID.String()
-	fmt.Printf(`
-╔═══════════════════════════════════╗
-║ ✅ BOT CONNECTED SUCCESSFULLY!
-╠═══════════════════════════════════╣
-║ 📱 Number: %s
-║ 🆔 LID: %s
-║ 🕐 Time: %s
-╚═══════════════════════════════════╝
-`, botID, getCleanID(lidStr), time.Now().Format("15:04:05"))
+	fmt.Printf("\n✅ [CONNECTED] Bot: %s | LID: %s\n", botID, getCleanID(device.LID.String()))
 }
 
 
+
 func StartAllBots(container *sqlstore.Container) {
-	dbContainer = container // سیشن ڈیلیٹ کے لیے کنٹینر سیٹ کریں
+	dbContainer = container
 	ctx := context.Background()
 	
 	devices, err := container.GetAllDevices(ctx)
@@ -680,46 +673,43 @@ func StartAllBots(container *sqlstore.Container) {
 		return
 	}
 
-	fmt.Printf("\n╔═══════════════════════════════════╗\n")
-	fmt.Printf("║ 🤖 STARTING MULTI-BOT SYSTEM      \n")
-	fmt.Printf("╠═══════════════════════════════════╣\n")
-	fmt.Printf("║ 📂 Found Sessions: %d             \n", len(devices))
-	fmt.Printf("╚═══════════════════════════════════╝\n")
+	fmt.Printf("\n🤖 Starting Multi-Bot System (Found %d entries in DB)\n", len(devices))
+
+	seenNumbers := make(map[string]bool)
 
 	for i, device := range devices {
-		// 🚀 ہر بوٹ کو بالکل الگ بیک گراؤنڈ میں اسٹارٹ کریں
+		botNum := getCleanID(device.ID.User)
+		
+		// 🛡️ اگر یہ نمبر اس لوپ میں پہلے آ چکا ہے تو اسے چھوڑ دو
+		if seenNumbers[botNum] {
+			continue
+		}
+		seenNumbers[botNum] = true
+
 		go func(idx int, dev *store.Device) {
-			botNum := getCleanID(dev.ID.User)
-			fmt.Printf("[%d] 🔌 Connecting Bot: %s...\n", idx+1, botNum)
-			
-			// کریش سے بچنے کے لیے یہاں بھی ریکور لگائیں
 			defer func() {
 				if r := recover(); r != nil {
-					fmt.Printf("❌ Bot %s failed to start: %v\n", botNum, r)
+					fmt.Printf("❌ Crash prevented on startup for %s: %v\n", botNum, r)
 				}
 			}()
-			
 			ConnectNewSession(dev)
 		}(i, device)
 		
-		// تھوڑا سا وقفہ دیں تاکہ ڈیٹا بیس اوور لوڈ نہ ہو
-		time.Sleep(3 * time.Second)
+		// ⏱️ وقفہ بڑھا دیا ہے تاکہ واٹس ایپ سرور کنفیوز نہ ہو
+		time.Sleep(5 * time.Second)
 	}
 
-	// نئے سیشنز کی نگرانی شروع کریں
 	go monitorNewSessions(container)
 }
 
 
+
 func monitorNewSessions(container *sqlstore.Container) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(60 * time.Second) // چیک کرنے کا ٹائم 1 منٹ کر دیا
 	defer ticker.Stop()
 
-	fmt.Println("\n🔍 [AUTO-CONNECT] نئے سیشنز کی نگرانی شروع...")
-
 	for range ticker.C {
-		ctx := context.Background()
-		devices, err := container.GetAllDevices(ctx)
+		devices, err := container.GetAllDevices(context.Background())
 		if err != nil {
 			continue
 		}
@@ -732,13 +722,14 @@ func monitorNewSessions(container *sqlstore.Container) {
 			clientsMutex.RUnlock()
 
 			if !exists {
-				fmt.Printf("\n🆕 [AUTO-CONNECT] نیا سیشن ملا: %s\n", botID)
+				fmt.Printf("\n🆕 [AUTO-CONNECT] New session found: %s\n", botID)
 				go ConnectNewSession(device)
-				time.Sleep(3 * time.Second)
+				time.Sleep(5 * time.Second)
 			}
 		}
 	}
 }
+
 
 func handleSessionDelete(client *whatsmeow.Client, v *events.Message, args []string) {
 	if !isOwner(client, v.Info.Sender) {
