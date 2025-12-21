@@ -379,7 +379,7 @@ func handleTikTok(client *whatsmeow.Client, v *events.Message, urlStr string) {
 			PlayURL:  finalVideoURL,
 			MusicURL: r.Data.Music,
 			Title:    r.Data.Title,
-			Size:     r.Data.Size,
+			Size:     int64(r.Data.Size),
 		}
 
 		// خوبصورت مینو کارڈ
