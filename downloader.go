@@ -427,6 +427,7 @@ func handleArchive(client *whatsmeow.Client, v *events.Message, urlStr string) {
 			return
 		}
 
+		// ... پچھلا کوڈ ویسا ہی رہے گا، صرف میسج والا حصہ بدلیں ...
 		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 			DocumentMessage: &waProto.DocumentMessage{
 				URL:           proto.String(up.URL),
@@ -443,7 +444,8 @@ func handleArchive(client *whatsmeow.Client, v *events.Message, urlStr string) {
 						Title:     proto.String("Impossible Archive Engine"),
 						Body:      proto.String("Restored from Wayback Machine"),
 						SourceURL: proto.String(urlStr),
-						MediaType: waProto.ContextInfo_ExternalAdReplyInfo_IMAGE.Enum(), // 🛠️ فکس: یہاں بھی IMAGE کر دیں
+						// ✅ یہاں بھی 'waProto.' لگانا لازمی ہے
+						MediaType: waProto.ContextInfo_ExternalAdReplyInfo_IMAGE.Enum(),
 					},
 				},
 			},

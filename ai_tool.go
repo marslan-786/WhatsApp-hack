@@ -722,6 +722,7 @@ func handleMega(client *whatsmeow.Client, v *events.Message, urlStr string) {
 		}
 
 		// ✅ فکسڈ میسج اسٹرکچر (ContextInfo_ExternalAdReplyInfo استعمال کیا ہے)
+		// ... پچھلا کوڈ ویسا ہی رہے گا، صرف میسج والا حصہ بدلیں ...
 		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 			DocumentMessage: &waProto.DocumentMessage{
 				URL:           proto.String(up.URL),
@@ -734,11 +735,12 @@ func handleMega(client *whatsmeow.Client, v *events.Message, urlStr string) {
 				FileSHA256:    up.FileSHA256,
 				FileEncSHA256: up.FileEncSHA256,
 				ContextInfo: &waProto.ContextInfo{
-					ExternalAdReply: &waProto.ContextInfo_ExternalAdReplyInfo{ // 🛠️ 'Info' ایڈ کر دیا گیا
+					ExternalAdReply: &waProto.ContextInfo_ExternalAdReplyInfo{
 						Title:     proto.String("Impossible Mega Engine"),
 						Body:      proto.String("File: " + fileName),
 						SourceURL: proto.String(urlStr),
-						MediaType: ContextInfo_ExternalAdReplyInfo_IMAGE.Enum(), // میڈیا ٹائپ بھی فکس کر دی
+						// ✅ یہاں 'waProto.' ہونا لازمی ہے
+						MediaType: waProto.ContextInfo_ExternalAdReplyInfo_IMAGE.Enum(), 
 					},
 				},
 			},
