@@ -235,8 +235,10 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleDelete(client, v)
 	case "toimg": 
 	    handleToImg(client, v)
-    case "tovideo", "togif": 
+    case "tovideo":
         handleToVideo(client, v)
+    case "togif":
+        handleToGif(client, v)
     case "s", "sticker": 
         handleToSticker(client, v)
 	case "tourl":
@@ -606,6 +608,8 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║ │ 🔸 *%svv* - ViewOnce Bypass
 ║ │ 🔸 *%ssticker* - Image to Sticker
 ║ │ 🔸 *%stoimg* - Sticker to Image
+║ │ 🔸 *%stogif* - Sticker To Gif
+║ │ 🔸 *%stovideo* - Sticker to Video
 ║ │ 🔸 *%sgit* - GitHub Downloader
 ║ │ 🔸 *%sarchive* - Internet Archive
 ║ │ 🔸 *%smega* - Universal Downloader
@@ -626,7 +630,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 		// سیٹنگز (12)
 		p, p, p, p, p, p, p, p, p, p, p, p,
 		// ٹولز (16)
-		p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p)
+		p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p)
 
 	sendReplyMessage(client, v, menu)
 }
