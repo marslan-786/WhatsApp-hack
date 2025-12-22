@@ -87,10 +87,10 @@ func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode st
 
 	if mode == "audio" {
 		fileName += ".mp3"
-		args = []string{"-f", "bestaudio", "--extract-audio", "--audio-format", "mp3", "-o", fileName, urlStr}
+		args = []string{"-f", "bestaudio", "--extract-audio", "--audio-format", "mp3", "-o", fileName, fullArgs}
 	} else {
 		fileName += ".mp4"
-		args = []string{"-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", "--merge-output-format", "mp4", "-o", fileName, urlStr}
+		args = []string{"-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", "--merge-output-format", "mp4", "-o", fileName, fullArgs}
 	}
 
 	// 1. سرور پر رینڈرنگ
