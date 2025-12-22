@@ -277,7 +277,8 @@ func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 	if query == "" { return }
 	react(client, v.Info.Chat, v.Info.ID, "🔍")
 	
-	botLID := getBotLIDFromDB(client)
+	// 🆔 بوٹ کا فون نمبر لیں (LID کا چکر ختم)
+	myBotNum := client.Store.ID.User 
 	senderLID := v.Info.Sender.User
 
 	cmd := exec.Command("yt-dlp", "ytsearch5:"+query, "--get-title", "--get-id", "--no-playlist")
@@ -286,13 +287,14 @@ func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 	if len(lines) < 2 { return }
 
 	var results []YTSResult
-	// ✨ نیا ڈیزائن: یہ ڈیزائن واٹس ایپ پر کبھی نہیں ٹوٹتا
+	// ✨ نیا "بارڈر پروف" ڈیزائن (یہ واٹس ایپ پر کبھی نہیں ٹوٹتا)
 	menuText := "╭─── 📺 *YOUTUBE SEARCH* ───╮\n│\n"
 	
 	for i := 0; i < len(lines)-1; i += 2 {
 		title := lines[i]
 		results = append(results, YTSResult{Title: title, Url: "https://www.youtube.com/watch?v=" + lines[i+1]})
-		menuText += fmt.Sprintf("📖 *[%d]* %s\n│ ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n", (i/2)+1, title)
+		// Bullet Style استعمال کیا ہے تاکہ ٹائٹل جتنا بھی بڑا ہو، ڈیزائن سیدھا رہے
+		menuText += fmt.Sprintf("📍 *[%d]* %s\n│ ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n", (i/2)+1, title)
 	}
 	menuText += "│\n╰────────────────────╯"
 
@@ -301,7 +303,12 @@ func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 	})
 
 	if err == nil {
-		ytCache[resp.ID] = YTSession{Results: results, SenderID: senderLID, BotLID: botLID}
+		// 💾 فون نمبر کے ساتھ سیو کریں
+		ytCache[resp.ID] = YTSession{
+			Results:  results, 
+			SenderID: senderLID, 
+			BotLID:   myBotNum, // JID استعمال کی
+		}
 		go func() { time.Sleep(2 * time.Minute); delete(ytCache, resp.ID) }()
 	}
 }

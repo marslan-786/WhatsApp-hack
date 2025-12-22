@@ -62,7 +62,6 @@ func isKnownCommand(text string) bool {
 }
 
 func processMessage(client *whatsmeow.Client, v *events.Message) {
-	// 1️⃣ بنیادی ڈیٹا نکالیں
 	rawBotID := client.Store.ID.User
 	botID := botCleanIDCache[rawBotID]
 	if botID == "" { botID = getCleanID(rawBotID) } 
@@ -73,62 +72,63 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	bodyClean := strings.TrimSpace(bodyRaw)
 	senderID := v.Info.Sender.User
 	chatID := v.Info.Chat.String()
-
-	// ✅ 2️⃣ 'isGroup' کو یہاں ڈیفائن کریں (ایرر ختم کرنے کے لیے)
 	isGroup := v.Info.IsGroup
 
-	// 🛠️ 3️⃣ ریپلائی آئی ڈی (quotedID) نکالیں
+	// 🛠️ ریپلائی آئی ڈی (quotedID)
 	var qID string
 	if extMsg := v.Message.GetExtendedTextMessage(); extMsg != nil && extMsg.ContextInfo != nil {
 		qID = extMsg.ContextInfo.GetStanzaID()
 	}
 
-	// 🔍 4️⃣ چیک کریں کیا یہ کسی ایکٹو سیشن کا ریپلائی ہے؟
+	// 🔍 سیشن چیک
 	_, isSetup := setupMap[qID]
 	_, isYTS := ytCache[qID]
 	_, isYTSelect := ytDownloadCache[qID]
-	_, isTT := ttCache[qID]
+	
+	isAnySession := isSetup || isYTS || isYTSelect
 
-	// 🛡️ 5️⃣ سیکیورٹی چیک (لنک ڈیلیٹ کرنے کے لیے اسے فلٹر سے اوپر رکھا ہے)
-	if isGroup {
-		go checkSecurity(client, v)
-	}
+	// 🛡️ سیکیورٹی اسکین (لنک ڈیلیٹ کرنے کے لیے)
+	if isGroup { go checkSecurity(client, v) }
 
-	// 🚀 6️⃣ مین فلٹر: اگر کمانڈ نہیں ہے اور نہ ہی کوئی ریپلائی سیشن، تو چپ رہے
-	if !strings.HasPrefix(bodyClean, prefix) && !isSetup && !isYTS && !isYTSelect && !isTT && chatID != "status@broadcast" {
+	// 🚀 مین فلٹر: اگر ریپلائی ہے تو پریفکس کی ضرورت نہیں
+	if !strings.HasPrefix(bodyClean, prefix) && !isAnySession && chatID != "status@broadcast" {
 		return 
 	}
 
-	// 🎯 7️⃣ ریپلائی ہینڈلنگ (YouTube/Security Setup)
-	if isSetup {
-		handleSetupResponse(client, v)
-		return
-	}
-
-	// یوٹیوب سرچ یا ڈاؤنلوڈ کا ریپلائی
+	// 🎯 ریپلائی ہینڈلنگ
 	if qID != "" {
-		// یوٹیوب سرچ رزلٹ لسٹ کا جواب
+		// 1. یوٹیوب سرچ لسٹ کا جواب
 		if session, ok := ytCache[qID]; ok {
-			if session.BotLID == botID && session.SenderID == senderID {
+			if session.BotLID == botID { // اب JID سے JID میچ ہوگا
 				var idx int
 				fmt.Sscanf(bodyClean, "%d", &idx)
 				if idx >= 1 && idx <= len(session.Results) {
-					delete(ytCache, qID) // سیشن ختم
+					fmt.Printf("🎯 [MATCH] YouTube Search selection: %d\n", idx)
+					delete(ytCache, qID)
 					handleYTDownloadMenu(client, v, session.Results[idx-1].Url)
 					return
 				}
 			}
 		}
-		// یوٹیوب فارمیٹ (MP3/MP4) کا جواب
+
+		// 2. یوٹیوب ڈاؤنلوڈ (MP3/MP4) کا جواب
 		if state, ok := ytDownloadCache[qID]; ok {
-			if state.BotLID == botID && state.SenderID == senderID {
-				delete(ytDownloadCache, qID) // سیشن ختم
+			if state.BotLID == botID {
+				fmt.Printf("🎬 [MATCH] Format selection: %s\n", bodyClean)
+				delete(ytDownloadCache, qID)
 				go handleYTDownload(client, v, state.Url, bodyClean, (bodyClean == "4"))
 				return
 			}
 		}
+		
+		// 3. سیکیورٹی سیٹ اپ
+		if isSetup {
+			handleSetupResponse(client, v)
+			return
+		}
 	}
 
+	// 8️⃣ باقی کمانڈز (Switch Case)...
 	// باقی کمانڈز...
 
     // ... باقی سارا کوڈ (Status, Security check, Commands) ویسے ہی رہنے دیں
