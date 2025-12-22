@@ -64,7 +64,7 @@ func isKnownCommand(text string) bool {
 
 
 func processMessage(client *whatsmeow.Client, v *events.Message) {
-	// 1️⃣ بنیادی معلومات اور آئی ڈی نکالنا
+	// 1️⃣ بنیادی معلومات نکالنا
 	rawBotID := client.Store.ID.User
 	botID := botCleanIDCache[rawBotID]
 	if botID == "" { botID = getCleanID(rawBotID) } 
@@ -83,11 +83,11 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		qID = extMsg.ContextInfo.GetStanzaID()
 	}
 
-	// 🔍 3️⃣ سیشنز اور اسٹیٹ چیک (Logging کے ساتھ)
+	// 🔍 3️⃣ سیشنز اور اسٹیٹ چیک (Reply Logic)
 	session, isYTS := ytCache[qID]
 	state, isYTSelect := ytDownloadCache[qID]
 	_, isSetup := setupMap[qID]
-	_, isTT := ttCache[senderID]
+	_, isTT := ttCache[senderID] // ٹک ٹاک ابھی یوزر آئی ڈی پر ہے
 
 	// 🛡️ 4️⃣ سیکیورٹی چیک (اینٹی لنک وغیرہ - فلٹر سے اوپر)
 	if isGroup {
@@ -107,27 +107,32 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 
 	if qID != "" {
-		// 📺 یوٹیوب سرچ رزلٹ پر ریپلائی
+		// یوٹیوب سرچ رزلٹ لسٹ پر ریپلائی
 		if isYTS && session.BotLID == botID {
 			var idx int
 			fmt.Sscanf(bodyClean, "%d", &idx)
-			fmt.Printf("⚙️ [DEBUG] YTS Reply: Index %d selected by %s\n", idx, senderID)
 			if idx >= 1 && idx <= len(session.Results) {
 				delete(ytCache, qID)
 				handleYTDownloadMenu(client, v, session.Results[idx-1].Url)
 				return
 			}
 		}
-		// 🎬 یوٹیوب ویڈیو سلیکٹر (1,2,3,4) پر ریپلائی
+		// یوٹیوب ویڈیو سلیکٹر (1,2,3,4) پر ریپلائی
 		if isYTSelect && state.BotLID == botID {
-			fmt.Printf("⚙️ [DEBUG] YT-DL Reply: Format %s chosen for URL: %s\n", bodyClean, state.Url)
 			delete(ytDownloadCache, qID)
+			// ✅ یہاں لنک بالکل صحیح Case میں جائے گا
 			go handleYTDownload(client, v, state.Url, bodyClean, (bodyClean == "4"))
 			return
 		}
 	}
 
-	// 📺 7️⃣ اسٹیٹس براڈکاسٹ ہینڈلنگ
+	// 📱 7️⃣ ٹک ٹاک ریپلائی ہینڈلنگ (Prefix کے بغیر)
+	if isTT && !strings.HasPrefix(bodyClean, prefix) {
+		handleTikTokReply(client, v, bodyClean, senderID)
+		return
+	}
+
+	// 📺 8️⃣ اسٹیٹس براڈکاسٹ ہینڈلنگ
 	if chatID == "status@broadcast" {
 		dataMutex.RLock()
 		if data.AutoStatus {
@@ -141,31 +146,29 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// 🔘 8️⃣ آٹو ریڈ اور ری ایکٹ
+	// 🔘 9️⃣ آٹو ریڈ اور ری ایکٹ
 	dataMutex.RLock()
 	if data.AutoRead { client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender) }
 	if data.AutoReact { react(client, v.Info.Chat, v.Info.ID, "❤️") }
 	dataMutex.RUnlock()
 
-	// 📱 9️⃣ انٹرایکٹو ٹک ٹاک ہینڈلنگ (Prefix کے بغیر ریپلائی سننا)
-	if isTT && !strings.HasPrefix(bodyClean, prefix) {
-		handleTikTokReply(client, v, bodyClean, senderID)
-		return
-	}
-
-	// ⚡ 🔟 مین کمانڈ پارسنگ
-	cmdBody := strings.ToLower(strings.TrimPrefix(bodyClean, prefix))
-	split := strings.Fields(cmdBody)
-	if len(split) == 0 { return }
+	// ⚡ 🔟 مین کمانڈ پارسنگ (The "Case-Safe" Engine)
 	
-	cmd := split[0]
-	args := split[1:]
-	fullArgs := strings.TrimSpace(strings.Join(args, " "))
+	// پریفکس ہٹا کر باقی میسج لیں (لیکن اس کا کیس تبدیل نہ کریں)
+	msgWithoutPrefix := strings.TrimPrefix(bodyClean, prefix)
+	words := strings.Fields(msgWithoutPrefix)
+	
+	if len(words) == 0 { return }
+	
+	// صرف کمانڈ کو چھوٹا (Lowercase) کریں تاکہ .MENU کام کرے
+	cmd := strings.ToLower(words[0]) 
+	
+	// لنک یا آرگیومنٹس کو ویسا ہی رہنے دیں جیسا یوزر نے بھیجا ہے
+	fullArgs := strings.TrimSpace(strings.Join(words[1:], " "))
 
 	if !canExecute(client, v, cmd) { return }
 
-	// 📊 کنسول پر کمانڈ لاگ کریں
-	fmt.Printf("🚀 [EXEC] Bot: %s | CMD: %s | Chat: %s\n", botID, cmd, chatID)
+	fmt.Printf("🚀 [EXEC] Bot: %s | CMD: %s | Arg: %s\n", botID, cmd, fullArgs)
 
 	switch cmd {
 	case "setprefix":
@@ -197,15 +200,15 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	case "statusreact":
 		toggleStatusReact(client, v)
 	case "addstatus":
-		handleAddStatus(client, v, args)
+		handleAddStatus(client, v, words[1:])
 	case "delstatus":
-		handleDelStatus(client, v, args)
+		handleDelStatus(client, v, words[1:])
 	case "liststatus":
 		handleListStatus(client, v)
 	case "readallstatus":
 		handleReadAllStatus(client, v)
 	case "mode":
-		handleMode(client, v, args)
+		handleMode(client, v, words[1:])
 	case "antilink":
 		startSecuritySetup(client, v, "antilink")
 	case "antipic":
@@ -215,19 +218,19 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	case "antisticker":
 		startSecuritySetup(client, v, "antisticker")
 	case "kick":
-		handleKick(client, v, args)
+		handleKick(client, v, words[1:])
 	case "add":
-		handleAdd(client, v, args)
+		handleAdd(client, v, words[1:])
 	case "promote":
-		handlePromote(client, v, args)
+		handlePromote(client, v, words[1:])
 	case "demote":
-		handleDemote(client, v, args)
+		handleDemote(client, v, words[1:])
 	case "tagall":
-		handleTagAll(client, v, args)
+		handleTagAll(client, v, words[1:])
 	case "hidetag":
-		handleHideTag(client, v, args)
+		handleHideTag(client, v, words[1:])
 	case "group":
-		handleGroup(client, v, args)
+		handleGroup(client, v, words[1:])
 	case "del", "delete":
 		handleDelete(client, v)
 	case "sticker", "s":
@@ -239,28 +242,25 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	case "tourl":
 		handleToURL(client, v)
 	case "translate", "tr":
-		handleTranslate(client, v, args)
+		handleTranslate(client, v, words[1:])
 	case "vv":
 		handleVV(client, v)
 	case "sd":
-		handleSessionDelete(client, v, args)
+		handleSessionDelete(client, v, words[1:])
 	case "yts":
 		handleYTS(client, v, fullArgs)
 
-	// 📺 یوٹیوب ماسٹر کمانڈ (Merged)
+	// 📺 یوٹیوب ماسٹر کمانڈ (Fixed Case)
 	case "yt", "ytmp4", "ytmp3", "ytv", "yta", "youtube":
-		fmt.Printf("📥 [DEBUG] YT Link Triggered. URL: '%s'\n", fullArgs)
 		if fullArgs == "" {
 			replyMessage(client, v, "⚠️ *Usage:* .yt [YouTube Link]")
 			return
 		}
-		// لنک کی صفائی اور تصدیق
-		cleanURL := strings.TrimSpace(fullArgs)
-		if strings.Contains(cleanURL, "youtu") {
-			fmt.Printf("📍 [DEBUG] Redirecting to Selector Card for: %s\n", cleanURL)
-			handleYTDownloadMenu(client, v, cleanURL)
+		// لنک کی تصدیق کے لیے صرف عارضی طور پر Lower کریں
+		if strings.Contains(strings.ToLower(fullArgs), "youtu") {
+			handleYTDownloadMenu(client, v, fullArgs) // اصل Case والا لنک جائے گا
 		} else {
-			replyMessage(client, v, "❌ Please provide a valid YouTube link or use *.yts* to search.")
+			replyMessage(client, v, "❌ Please provide a valid YouTube link.")
 		}
 
 	case "fb", "facebook":
