@@ -443,56 +443,63 @@ func startSecuritySetup(client *whatsmeow.Client, v *events.Message, secType str
 }
 
 func handleSetupResponse(client *whatsmeow.Client, v *events.Message) {
-	// 1. ریپلائی کا ڈیٹا نکالیں
+	// 1. ریپلائی کا ڈیٹا اور انکمنگ یوزر کی LID نکالیں
 	extMsg := v.Message.GetExtendedTextMessage()
 	if extMsg == nil || extMsg.ContextInfo == nil {
 		return // ریپلائی نہیں ہے تو چپ رہے
 	}
 
 	quotedID := extMsg.ContextInfo.GetStanzaID()
-	incomingLID := v.Info.Sender.User // انکمنگ یوزر کی کلین LID
-	botUniqueLID := getBotLIDFromDB(client)
+	incomingLID := v.Info.Sender.User // یوزر کی کلین LID (صرف نمبر)
+	botLID := getBotLIDFromDB(client)
+
+	// 📊 لاگنگ (Printing) تاکہ سائنسدانوں کو پتہ چلے کہ ڈیٹا مل گیا ہے
+	fmt.Printf("\n📩 [LOG] RESPONSE DETECTED\n  ┃ From LID: %s\n  ┃ Quoted ID: %s\n  ┃ Bot LID: %s\n", incomingLID, quotedID, botLID)
 
 	// 2. چیک کریں کیا یہ میسج آئی ڈی ہمارے میپ میں ہے؟
 	state, exists := setupMap[quotedID]
 	
 	if !exists {
-		return // یہ ہمارے کسی ایکٹو کارڈ کا ریپلائی نہیں ہے
-	}
-
-	// 📊 لاگنگ (Printing)
-	fmt.Printf("\n📩 [LOG] Reply Received\n  ┃ From LID: %s\n  ┃ Card ID: %s\n", incomingLID, quotedID)
-
-	// 3. چیک کریں کیا یہ اسی بوٹ کا سیشن ہے؟
-	if state.BotLID != botUniqueLID {
-		return 
-	}
-
-	// 4. چیک کریں کیا یہ اسی یوزر کی LID ہے جس نے کمانڈ دی تھی؟
-	if state.User != incomingLID {
-		fmt.Printf("🚫 [REJECTED] Expected LID: %s | Got: %s\n", state.User, incomingLID)
+		fmt.Printf("⚠️ [DEBUG] ID %s not found in cache. Ignoring...\n", quotedID)
 		return
 	}
 
-	fmt.Printf("✅ [MATCHED] Processing Stage %d\n", state.Stage)
+	// 3. کیا یہ اسی بوٹ کا سیشن ہے؟
+	if state.BotLID != botLID {
+		fmt.Println("🚫 [DEBUG] Mismatch: This card belongs to another bot instance.")
+		return 
+	}
+
+	// 4. کیا یہ اسی یوزر کی LID ہے جس نے کمانڈ دی تھی؟
+	if state.User != incomingLID {
+		fmt.Printf("🚫 [REJECTED] Authorized LID: %s | Incoming LID: %s\n", state.User, incomingLID)
+		return
+	}
+
+	fmt.Printf("✅ [MATCHED] Processing Stage %d for %s\n", state.Stage, state.Type)
 
 	txt := strings.TrimSpace(getText(v.Message))
 	s := getGroupSettings(state.GroupID)
 
 	// --- ⚡ اسٹیج 1 ---
 	if state.Stage == 1 {
-		if txt == "1" { s.AntilinkAdmin = true } else if txt == "2" { s.AntilinkAdmin = false } else {
-			fmt.Println("❌ [INVALID] Reply was not 1 or 2.")
+		if txt == "1" { 
+			s.AntilinkAdmin = true 
+		} else if txt == "2" { 
+			s.AntilinkAdmin = false 
+		} else {
+			fmt.Println("❌ [INVALID] User input was not 1 or 2.")
 			return 
 		}
 		
-		// پرانا کارڈ ختم کریں
+		// پرانا کارڈ میموری سے ہٹائیں
 		delete(setupMap, quotedID)
 
 		state.Stage = 2
 		nextMsg := fmt.Sprintf(`╔════════════════╗
 ║ ⚡ %s (2/2)
 ╠════════════════╣
+║ Choose Action:
 ║ 1️⃣ DELETE ONLY
 ║ 2️⃣ DELETE + KICK
 ║ 3️⃣ DELETE + WARN
@@ -502,11 +509,11 @@ func handleSetupResponse(client *whatsmeow.Client, v *events.Message) {
 			ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: proto.String(nextMsg)},
 		})
 		
-		// نئے کارڈ کی آئی ڈی کو نئی Key بنائیں
+		// نئے کارڈ کی آئی ڈی کو نئی Key بنائیں تاکہ اگلا ریپلائی ٹریک ہو
 		state.BotMsgID = resp.ID 
 		setupMap[resp.ID] = state
 		
-		fmt.Printf("⏭️ [ADVANCING] Stage 2 sent. New Wait ID: %s\n", resp.ID)
+		fmt.Printf("⏭️ [ADVANCING] Stage 2 card sent. New ID: %s\n", resp.ID)
 		return
 	}
 
@@ -514,32 +521,41 @@ func handleSetupResponse(client *whatsmeow.Client, v *events.Message) {
 	if state.Stage == 2 {
 		var actionText string
 		switch txt {
-		case "1": s.AntilinkAction = "delete"; actionText = "Delete Only"
-		case "2": s.AntilinkAction = "deletekick"; actionText = "Delete + Kick"
-		case "3": s.AntilinkAction = "deletewarn"; actionText = "Delete + Warn"
-		default: return
+		case "1": 
+			s.AntilinkAction = "delete"; actionText = "Delete Only"
+		case "2": 
+			s.AntilinkAction = "deletekick"; actionText = "Delete + Kick"
+		case "3": 
+			s.AntilinkAction = "deletewarn"; actionText = "Delete + Warn"
+		default: 
+			fmt.Println("❌ [INVALID] User input was not 1, 2, or 3.")
+			return
 		}
 
-		// فائنل سیونگ
+		// سیٹنگز اپڈیٹ کریں
 		applySecurityChanges(s, state.Type, true)
 		saveGroupSettings(s)
 		
 		// سیشن مکمل طور پر ختم
 		delete(setupMap, quotedID)
 
-		adminAllow := "YES ✅"; if !s.AntilinkAdmin { adminAllow = "NO ❌" }
+		// ✅ adminAllow کو ڈیزائن میں شامل کیا تاکہ ایرر ختم ہو
+		adminBypass := "YES ✅"
+		if !s.AntilinkAdmin { adminBypass = "NO ❌" }
+
 		finalMsg := fmt.Sprintf(`╔════════════════╗
 ║ ✅ %s ENABLED
 ╠════════════════╣
+║ Admin Bypass: %s
 ║ Action: %s
-╚════════════════╝`, strings.ToUpper(state.Type), actionText)
+╚════════════════╝`, strings.ToUpper(state.Type), adminBypass, actionText)
 
 		replyMessage(client, v, finalMsg)
-		fmt.Printf("🏁 [SUCCESS] %s Setup Complete for LID %s\n", state.Type, incomingLID)
+		fmt.Printf("🏁 [FINISHED] %s Setup Success for LID %s\n", state.Type, incomingLID)
 	}
 }
 
-// فیچر سیو کرنے کا ہیلپر
+// ہیلپر فنکشن (تاکہ ایرر نہ آئے)
 func applySecurityChanges(s *GroupSettings, t string, val bool) {
 	switch t {
 	case "antilink": s.Antilink = val
