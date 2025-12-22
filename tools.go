@@ -54,7 +54,7 @@ func handleToSticker(client *whatsmeow.Client, v *events.Message) {
 	}
 
 	finalData, _ := os.ReadFile(output)
-	up, _ := client.Upload(context.Background(), finalData, whatsmeow.MediaSticker)
+	up, _ := client.Upload(context.Background(), finalData, whatsmeow.MediaImage)
 
 	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		StickerMessage: &waProto.StickerMessage{
