@@ -347,6 +347,8 @@ func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 
 func handleYTDownloadMenu(client *whatsmeow.Client, v *events.Message, ytUrl string) {
 	myID := getCleanID(client.Store.ID.User)
+	senderLID := v.Info.Sender.User
+
 	menu := `╔════════════════════╗
 ║    🎬 VIDEO SELECTOR 
 ╠════════════════════╣
@@ -355,7 +357,8 @@ func handleYTDownloadMenu(client *whatsmeow.Client, v *events.Message, ytUrl str
 ║ 3️⃣ 1080p (FHD)
 ║ 4️⃣ MP3 (Audio)
 ║
-║ ⏳ Timeout: 1 min
+║ ⏳ Select an option by 
+║ replying to this card.
 ╚════════════════════╝`
 
 	resp, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
@@ -363,13 +366,44 @@ func handleYTDownloadMenu(client *whatsmeow.Client, v *events.Message, ytUrl str
 	})
 
 	if err == nil {
-		ytDownloadCache[resp.ID] = YTState{Url: ytUrl, BotLID: myID}
-		go func() { time.Sleep(1 * time.Minute); delete(ytDownloadCache, resp.ID) }()
+		// 💾 میسج آئی ڈی کے ساتھ کیش کریں
+		ytDownloadCache[resp.ID] = YTState{
+			Url:      ytUrl,
+			BotLID:   myID,
+			SenderID: senderLID,
+		}
+		fmt.Printf("📂 [YT-MENU] Cached ID: %s for Bot: %s\n", resp.ID, myID)
+		
+		// ۱ منٹ بعد صفائی
+		go func() {
+			time.Sleep(1 * time.Minute)
+			delete(ytDownloadCache, resp.ID)
+		}()
 	}
 }
 
-func handleYTDownload(client *whatsmeow.Client, v *events.Message, ytUrl, format string, isAudio bool) {
-	m := "video"; if isAudio { m = "audio" }; go downloadAndSend(client, v, ytUrl, m)
+func handleYTDownload(client *whatsmeow.Client, v *events.Message, ytUrl, choice string, isAudio bool) {
+	react(client, v.Info.Chat, v.Info.ID, "⏳")
+	
+	// 🎯 فارمیٹ کی سلیکشن
+	format := "bestvideo[height<=720]+bestaudio/best" // Default 720p
+	mode := "video"
+
+	if isAudio {
+		mode = "audio"
+		format = "bestaudio/best"
+	} else {
+		switch choice {
+		case "1": format = "bestvideo[height<=360]+bestaudio/best" // 360p
+		case "2": format = "bestvideo[height<=720]+bestaudio/best" // 720p
+		case "3": format = "bestvideo[height<=1080]+bestaudio/best" // 1080p
+		}
+	}
+
+	fmt.Printf("🚀 Starting YT Download: %s | Mode: %s | Format: %s\n", ytUrl, mode, choice)
+	
+	// آپ کا اصل ڈاؤنلوڈر فنکشن کال ہو رہا ہے
+	go downloadAndSend(client, v, ytUrl, mode, format) 
 }
 
 // ------------------- مددگار فنکشنز (Helpers) -------------------

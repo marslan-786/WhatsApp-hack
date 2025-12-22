@@ -62,6 +62,7 @@ func isKnownCommand(text string) bool {
 }
 
 func processMessage(client *whatsmeow.Client, v *events.Message) {
+	// 1️⃣ بنیادی معلومات اور آئی ڈی
 	rawBotID := client.Store.ID.User
 	botID := botCleanIDCache[rawBotID]
 	if botID == "" { botID = getCleanID(rawBotID) } 
@@ -74,36 +75,47 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	chatID := v.Info.Chat.String()
 	isGroup := v.Info.IsGroup
 
+	// 🛠️ 2️⃣ ریپلائی آئی ڈی (qID) نکالنا
 	var qID string
 	if extMsg := v.Message.GetExtendedTextMessage(); extMsg != nil && extMsg.ContextInfo != nil {
 		qID = extMsg.ContextInfo.GetStanzaID()
 	}
 
-	// 🔍 سیشن چیک
+	// 🔍 3️⃣ سیشنز اور اسٹیٹ چیک
 	_, isSetup := setupMap[qID]
 	_, isYTS := ytCache[qID]
 	_, isYTSelect := ytDownloadCache[qID]
-	_, isTT := ttCache[senderID] // ٹک ٹاک ابھی یوزر آئی ڈی پر ہے
+	_, isTT := ttCache[senderID] // ٹک ٹاک سیشن چیک
 
-	if isGroup { go checkSecurity(client, v) }
+	// 🛡️ 4️⃣ سیکیورٹی چیک (اینٹی لنک وغیرہ کے لیے اسے فلٹر سے اوپر رکھا ہے)
+	if isGroup {
+		go checkSecurity(client, v)
+	}
 
+	// 🚀 5️⃣ مین فلٹر: اگر کمانڈ نہیں ہے اور نہ ہی کوئی ایکٹو ریپلائی، تو یہیں رک جاؤ
 	isAnySession := isSetup || isYTS || isYTSelect || isTT
 	if !strings.HasPrefix(bodyClean, prefix) && !isAnySession && chatID != "status@broadcast" {
 		return 
 	}
 
-	// 🎯 ریپلائی ہینڈلنگ
-	if isSetup { handleSetupResponse(client, v); return }
+	// 🎯 6️⃣ ریپلائی ہینڈلنگ (YouTube / Security Setup)
+	if isSetup {
+		handleSetupResponse(client, v)
+		return
+	}
 
 	if qID != "" {
+		// یوٹیوب سرچ رزلٹ لسٹ کا جواب
 		if session, ok := ytCache[qID]; ok && session.BotLID == botID {
 			var idx int
 			fmt.Sscanf(bodyClean, "%d", &idx)
 			if idx >= 1 && idx <= len(session.Results) {
-				delete(ytCache, qID); handleYTDownloadMenu(client, v, session.Results[idx-1].Url)
+				delete(ytCache, qID)
+				handleYTDownloadMenu(client, v, session.Results[idx-1].Url)
 				return
 			}
 		}
+		// یوٹیوب فارمیٹ (MP3/MP4) کا جواب
 		if state, ok := ytDownloadCache[qID]; ok && state.BotLID == botID {
 			delete(ytDownloadCache, qID)
 			go handleYTDownload(client, v, state.Url, bodyClean, (bodyClean == "4"))
@@ -111,13 +123,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}
 
-	// 📱 ٹک ٹاک ہینڈلنگ (اب یہ اوپر والے فنکشن کو کال کرے گا)
-	if isTT && !strings.HasPrefix(bodyClean, prefix) {
-		handleTikTokReply(client, v, bodyClean, senderID)
-		return
-	}
-
-	// 📺 8️⃣ اسٹیٹس براڈکاسٹ ہینڈلنگ
+	// 📺 7️⃣ اسٹیٹس براڈکاسٹ ہینڈلنگ
 	if chatID == "status@broadcast" {
 		dataMutex.RLock()
 		if data.AutoStatus {
@@ -131,33 +137,19 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// 🔘 9️⃣ آٹو ریڈ اور ری ایکٹ
+	// 🔘 8️⃣ آٹو ریڈ اور ری ایکٹ
 	dataMutex.RLock()
 	if data.AutoRead { client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender) }
 	if data.AutoReact { react(client, v.Info.Chat, v.Info.ID, "❤️") }
 	dataMutex.RUnlock()
 
-	// 📱 🔟 انٹرایکٹو ٹک ٹاک ہینڈلنگ
-	if isTT {
-		state := ttCache[senderID]
-		if bodyClean == "1" {
-			delete(ttCache, senderID); react(client, v.Info.Chat, v.Info.ID, "🎬")
-			sendVideo(client, v, state.PlayURL, "🎬 *TikTok Video*")
-			return
-		} else if bodyClean == "2" {
-			delete(ttCache, senderID); react(client, v.Info.Chat, v.Info.ID, "🎵")
-			sendDocument(client, v, state.MusicURL, "tiktok_audio.mp3", "audio/mpeg")
-			return
-		} else if bodyClean == "3" {
-			delete(ttCache, senderID)
-			infoMsg := fmt.Sprintf("╔═══════════════════╗\n║ 📝 Title: %s\n╚═══════════════════╝", state.Title)
-			replyMessage(client, v, infoMsg)
-			return
-		}
+	// 📱 9️⃣ انٹرایکٹو ٹک ٹاک ہینڈلنگ
+	if isTT && !strings.HasPrefix(bodyClean, prefix) {
+		handleTikTokReply(client, v, bodyClean, senderID)
+		return
 	}
 
-
-	// 7. کمانڈ پارسنگ
+	// ⚡ 🔟 مین کمانڈ پارسنگ
 	cmdBody := strings.ToLower(strings.TrimPrefix(bodyClean, prefix))
 	split := strings.Fields(cmdBody)
 	if len(split) == 0 { return }
@@ -166,25 +158,14 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	args := split[1:]
 	fullArgs := strings.Join(args, " ")
 
-	// 8. پرمیشن چیک
-	if !canExecute(client, v, cmd) {
-		return
-	}
+	if !canExecute(client, v, cmd) { return }
 
-	// 9. کنسول لاگنگ
 	fmt.Printf("🚀 [EXEC] Bot: %s | CMD: %s | Chat: %s\n", botID, cmd, chatID)
 
-	// 10. مین کمانڈ سوئچ
 	switch cmd {
 	case "setprefix":
-		if !isOwner(client, v.Info.Sender) {
-			replyMessage(client, v, "❌ Only Owner can change the prefix.")
-			return
-		}
-		if fullArgs == "" {
-			replyMessage(client, v, "⚠️ Usage: .setprefix !")
-			return
-		}
+		if !isOwner(client, v.Info.Sender) { replyMessage(client, v, "❌ Only Owner can change the prefix."); return }
+		if fullArgs == "" { replyMessage(client, v, "⚠️ Usage: .setprefix !"); return }
 		updatePrefixDB(botID, fullArgs)
 		replyMessage(client, v, fmt.Sprintf("✅ Prefix updated to [%s]", fullArgs))
 
@@ -262,7 +243,20 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleSessionDelete(client, v, args)
 	case "yts":
 		handleYTS(client, v, fullArgs)
-    // 📥 سوشل میڈیا ڈاؤنلوڈرز (Social Media Atom Bombs)
+
+	// 📺 یوٹیوب ماسٹر کمانڈ (Merged)
+	case "yt", "ytmp4", "ytmp3", "ytv", "yta", "youtube":
+		if fullArgs == "" {
+			replyMessage(client, v, "⚠️ *Usage:* .yt [YouTube Link]")
+			return
+		}
+		if strings.Contains(fullArgs, "youtu") {
+			// اب لنک دیتے ہی سلیکٹر مینو جائے گا
+			handleYTDownloadMenu(client, v, fullArgs)
+		} else {
+			replyMessage(client, v, "❌ Please provide a valid YouTube link or use *.yts* to search.")
+		}
+
 	case "fb", "facebook":
 		handleFacebook(client, v, fullArgs)
 	case "ig", "insta", "instagram":
@@ -279,11 +273,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleSnapchat(client, v, fullArgs)
 	case "reddit":
 		handleReddit(client, v, fullArgs)
-	// 📺 ویڈیو اور اسٹریم ڈاؤنلوڈرز (High-End Streams)
-	case "ytmp4", "ytv", "youtube":
-		handleYoutubeVideo(client, v, fullArgs)
-	case "ytmp3", "yta":
-		handleYoutubeAudio(client, v, fullArgs)
 	case "twitch":
 		handleTwitch(client, v, fullArgs)
 	case "dm", "dailymotion":
@@ -300,7 +289,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleKwai(client, v, fullArgs)
 	case "bitchute":
 		handleBitChute(client, v, fullArgs)
-	// 🎵 میوزک پلیٹ فارمز (HQ Audio Rippers)
 	case "sc", "soundcloud":
 		handleSoundCloud(client, v, fullArgs)
 	case "spotify":
@@ -317,7 +305,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleNapster(client, v, fullArgs)
 	case "bandcamp":
 		handleBandcamp(client, v, fullArgs)
-	// 🖼️ فوٹو اور میمز (Media Assets)
 	case "imgur":
 		handleImgur(client, v, fullArgs)
 	case "giphy":
@@ -328,7 +315,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handle9Gag(client, v, fullArgs)
 	case "ifunny":
 		handleIfunny(client, v, fullArgs)
-	// 🛠️ ہیوی ٹولز اور یوٹیلیٹیز (Daily Pure Weapons)
 	case "stats", "server", "dashboard":
 		handleServerStats(client, v)
 	case "speed", "speedtest":
@@ -357,7 +343,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleArchive(client, v, fullArgs)
 	case "git", "github":
 		handleGithub(client, v, fullArgs)
-	// 📥 یونیورسل ڈاؤنلوڈر (The Scientist's Nightmare)
 	case "dl", "download", "mega":
 		handleMega(client, v, fullArgs)
 	}
@@ -537,9 +522,9 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ╠══════════════════════╣
 ║                           
 ║ ╭─── SOCIAL DOWNLOADERS ──╮
-║ │ 🔸 *%sfb* - ✅ Facebook Video
+║ │ 🔸 *%sfb* - Facebook Video
 ║ │ 🔸 *%sig* - Instagram Reel/Post
-║ │ 🔸 *%stt* - ✅ TikTok No Watermark
+║ │ 🔸 *%stt* - TikTok No Watermark
 ║ │ 🔸 *%stw* - Twitter/X Media
 ║ │ 🔸 *%spin* - Pinterest Downloader
 ║ │ 🔸 *%sthreads* - Threads Video
@@ -548,9 +533,8 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║ ╰───────────────────────╯
 ║                             
 ║ ╭─── VIDEO & STREAMS ────╮
-║ │ 🔸 *%sytmp4* - ✅ YouTube Video
-║ │ 🔸 *%syts* - ✅ YouTube Search
-║ │ 🔸 *%sytmp3* - ✅ YouTube Audio
+║ │ 🔸 *%syt* - <Link>
+║ │ 🔸 *%syts* - YouTube Search
 ║ │ 🔸 *%stwitch* - Twitch Clips
 ║ │ 🔸 *%sdm* - DailyMotion HQ
 ║ │ 🔸 *%svimeo* - Vimeo Pro Video
@@ -623,7 +607,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 		// سوشل ڈاؤنلوڈرز (8)
 		p, p, p, p, p, p, p, p,
 		// ویڈیوز (10)
-		p, p, p, p, p, p, p, p, p, p, p,
+		p, p, p, p, p, p, p, p, p, p,
 		// میوزک (8)
 		p, p, p, p, p, p, p, p,
 		// گروپ (7)
