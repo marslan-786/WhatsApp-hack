@@ -16,6 +16,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"google.golang.org/protobuf/proto"
+	"github.com/showwin/speedtest-go/speedtest"
 )
 
 // 💎 ٹول کارڈ میکر (Premium UI)
@@ -76,21 +77,51 @@ func handleServerStats(client *whatsmeow.Client, v *events.Message) {
 }
 
 // 3. 🚀 REAL SPEED TEST (.speed) - Real Execution
-func handleSpeedTest(client *whatsmeow.Client, v *events.Message) {
-	react(client, v.Info.Chat, v.Info.ID, "📡")
-	sendToolCard(client, v, "Network Node", "Speedtest-CLI", "📡 Measuring Fiber Uplink...")
 
-	// براہ راست سرور کی سپیڈ چیک کرنا
-	cmd := exec.Command("speedtest", "--simple")
-	out, err := cmd.Output()
+func handleSpeedTest(client *whatsmeow.Client, v *events.Message) {
+	react(client, v.Info.Chat, v.Info.ID, "🚀")
 	
-	result := string(out)
-	if err != nil || result == "" {
-		// اگر ٹول انسٹال نہیں تو بیک اپ لائیو ڈیٹا
-		result = "Ping: 1.2ms\nDownload: 914.52 Mbit/s\nUpload: 840.11 Mbit/s"
+	// ابتدائی میسج
+	msgID := replyMessage(client, v, "📡 *Impossible Engine:* Analyzing network uplink...")
+
+	// 1. سپیڈ ٹیسٹ کلائنٹ شروع کریں
+	var speedClient = speedtest.New()
+	
+	// 2. قریبی سرور تلاش کریں
+	serverList, err := speedClient.FetchServers()
+	if err != nil {
+		replyMessage(client, v, "❌ Failed to fetch speedtest servers.")
+		return
 	}
 	
-	replyMessage(client, v, "🚀 *Official Live Server Speed:* \n\n"+result)
+	targets, _ := serverList.FindServer([]int{})
+	if len(targets) == 0 {
+		replyMessage(client, v, "❌ No reachable network nodes found.")
+		return
+	}
+
+	// 3. ٹیسٹنگ شروع (Ping, Download, Upload)
+	s := targets[0]
+	s.PingTest(nil)
+	s.DownloadTest()
+	s.UploadTest()
+
+	// ✨ پریمیم کارڈ ڈیزائن (جو کبھی نہیں ٹوٹے گا)
+	result := fmt.Sprintf("╭─── 🚀 *NETWORK ANALYSIS* ───╮\n"+
+		"│\n"+
+		"│ 📡 *Node:* %s\n"+
+		"│ 📍 *Location:* %s\n"+
+		"│ ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"+
+		"│ ⚡ *Latency:* %s\n"+
+		"│ 📥 *Download:* %.2f Mbps\n"+
+		"│ 📤 *Upload:* %.2f Mbps\n"+
+		"│\n"+
+		"╰────────────────────╯",
+		s.Name, s.Country, s.Latency, s.DLSpeed, s.ULSpeed)
+
+	// رزلٹ بھیجیں
+	replyMessage(client, v, result)
+	react(client, v.Info.Chat, v.Info.ID, "✅")
 }
 
 

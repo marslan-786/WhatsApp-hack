@@ -25,6 +25,7 @@ RUN go mod init impossible-bot && \
     go get github.com/lib/pq@latest && \
     go get github.com/gorilla/websocket@latest && \
     go get google.golang.org/protobuf/proto@latest && \
+    go get github.com/showwin/speedtest-go && \
     go mod tidy
 
 # بوٹ کو کمپائل کریں
