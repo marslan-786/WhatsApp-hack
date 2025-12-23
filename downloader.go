@@ -39,44 +39,7 @@ func sendPremiumCard(client *whatsmeow.Client, v *events.Message, title, site, i
 	replyMessage(client, v, card)
 }
 
-func handleTikTokReply(client *whatsmeow.Client, v *events.Message, input string, senderID string) {
-	// 1. کیش سے ڈیٹا نکالیں
-	state, exists := ttCache[senderID]
-	if !exists { return }
 
-	// 2. ان پٹ چیک کریں
-	switch input {
-	case "1":
-		// ویڈیو بھیجیں
-		delete(ttCache, senderID)
-		react(client, v.Info.Chat, v.Info.ID, "🎬")
-		fmt.Printf("🎬 [TikTok] Sending video to %s\n", senderID)
-		sendVideo(client, v, state.PlayURL, "🎬 *TikTok Video*")
-		
-	case "2":
-		// آڈیو بھیجیں
-		delete(ttCache, senderID)
-		react(client, v.Info.Chat, v.Info.ID, "🎵")
-		fmt.Printf("🎵 [TikTok] Sending audio to %s\n", senderID)
-		sendDocument(client, v, state.MusicURL, "tiktok_audio.mp3", "audio/mpeg")
-		
-	case "3":
-		// معلومات دکھائیں
-		delete(ttCache, senderID)
-		infoMsg := fmt.Sprintf(`╔═══════════════════╗
-║ 📄 TIKTOK INFO      
-╠═══════════════════╣
-║ 📝 Title: %s
-║ 📊 Size: %.2f MB
-║ ✨ Status: Success
-╚═══════════════════╝`, state.Title, float64(state.Size)/(1024*1024))
-		replyMessage(client, v, infoMsg)
-		
-	default:
-		// اگر 1, 2, 3 کے علاوہ کچھ لکھا تو خاموش رہے یا لاگ کرے
-		fmt.Printf("⚠️ [TikTok] Invalid input from %s: %s\n", senderID, input)
-	}
-}
 
 // 🚀 ہیوی ڈیوٹی میڈیا انجن (The Scientific Power)
 func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode string, optionalFormat ...string) {
@@ -164,12 +127,67 @@ func handleInstagram(client *whatsmeow.Client, v *events.Message, url string) {
 func handleTikTok(client *whatsmeow.Client, v *events.Message, urlStr string) {
 	if urlStr == "" { return }
 	react(client, v.Info.Chat, v.Info.ID, "🎵")
+	
 	apiUrl := "https://www.tikwm.com/api/?url=" + url.QueryEscape(urlStr)
-	var r struct { Code int `json:"code"`; Data struct { Play, Music, Title string; Size uint64 } `json:"data"` }
+	var r struct { 
+		Code int `json:"code"`
+		Data struct { Play, Music, Title string; Size uint64 } `json:"data"` 
+	}
 	getJson(apiUrl, &r)
+
 	if r.Code == 0 {
-		ttCache[v.Info.Sender.String()] = TTState{PlayURL: r.Data.Play, MusicURL: r.Data.Music, Title: r.Data.Title, Size: int64(r.Data.Size)}
-		sendPremiumCard(client, v, "TikTok No-WM", "TikTok", fmt.Sprintf("📝 %s\n\n🔢 Reply 1 for Video | 2 for Audio", r.Data.Title))
+		// کیش میں ڈیٹا محفوظ کریں
+		sender := v.Info.Sender.ToNonAD().String() // ✅ بہتر جے آئی ڈی ہینڈلنگ
+		ttCache[sender] = TTState{
+			PlayURL: r.Data.Play, 
+			MusicURL: r.Data.Music, 
+			Title: r.Data.Title, 
+			Size: int64(r.Data.Size),
+		}
+
+		// 👑 پریمیم ورٹیکل مینیو
+		menuText := fmt.Sprintf("📝 *Title:* %s\n\n", r.Data.Title)
+		menuText += "🔢 *Reply with a number:*\n\n"
+		menuText += "  【 1 】 🎬 *Video (No WM)*\n"
+		menuText += "  【 2 】 🎵 *Audio (MP3)*\n"
+		menuText += "  【 3 】 📄 *Full Info*\n\n"
+		menuText += "⏳ *Timeout:* 2 Minutes"
+
+		sendPremiumCard(client, v, "TikTok Downloader", "TikWM Engine", menuText)
+	} else {
+		replyMessage(client, v, "❌ *Error:* Could not fetch TikTok data.")
+	}
+}
+
+func handleTikTokReply(client *whatsmeow.Client, v *events.Message, input string) {
+	senderID := v.Info.Sender.ToNonAD().String()
+	state, exists := ttCache[senderID]
+	if !exists { return }
+
+	// ان پٹ صاف کریں
+	input = strings.TrimSpace(input)
+
+	switch input {
+	case "1":
+		react(client, v.Info.Chat, v.Info.ID, "🎬")
+		sendVideo(client, v, state.PlayURL, "✅ *TikTok Video Generated*")
+		delete(ttCache, senderID) // کام ختم ہونے پر کیش صاف
+
+	case "2":
+		react(client, v.Info.Chat, v.Info.ID, "🎵")
+		// آڈیو کو ڈاکومنٹ کے بجائے آڈیو میسج کے طور پر بھیجنا بہتر ہے
+		sendAudio(client, v, state.MusicURL) 
+		delete(ttCache, senderID)
+
+	case "3":
+		infoMsg := fmt.Sprintf("╔═══════════════════╗\n"+
+			"║      ✨ TIKTOK INFO ✨     ║\n"+
+			"╠═══════════════════╣\n"+
+			"║ 📝 Title: %s\n"+
+			"║ 📊 Size: %.2f MB\n"+
+			"╚═══════════════════╝", state.Title, float64(state.Size)/(1024*1024))
+		replyMessage(client, v, infoMsg)
+		delete(ttCache, senderID)
 	}
 }
 
