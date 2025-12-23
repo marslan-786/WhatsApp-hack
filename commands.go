@@ -14,6 +14,17 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type CachedAdminList struct {
+    Admins    map[string]bool // صرف ایڈمنز کی لسٹ رکھیں گے
+    Timestamp time.Time       // کب ڈیٹا لیا تھا
+}
+
+var (
+    adminCache      = make(map[string]CachedAdminList) // GroupID -> AdminList
+    adminCacheMutex sync.RWMutex
+)
+
+
 // ⚡ نوٹ: یہاں سے وہ ڈپلیکیٹ ویری ایبلز (activeClients, clientsMutex وغیرہ) 
 // ہٹا دیئے گئے ہیں کیونکہ وہ اب صرف main.go میں ایک ہی بار ڈیفائن ہوں گے۔
 
@@ -93,8 +104,13 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 
 	// 🛡️ 4️⃣ سیکیورٹی چیک (اینٹی لنک وغیرہ)
 	if isGroup {
-		go checkSecurity(client, v)
-	}
+    // پہلے سیٹنگز چیک کریں، پھر Goroutine چلائیں
+        s := getGroupSettings(chatID)
+        if s.Antilink || s.AntiPic || s.AntiVideo || s.AntiSticker {
+            go checkSecurity(client, v)
+        }
+    }
+
 
 	// 🚀 5️⃣ مین فلٹر: اگر کمانڈ نہیں ہے اور کوئی سیشن بھی نہیں، تو خاموش رہے
 	isAnySession := isSetup || isYTS || isYTSelect || isTT
@@ -427,17 +443,46 @@ func isOwner(client *whatsmeow.Client, sender types.JID) bool {
 }
 
 func isAdmin(client *whatsmeow.Client, chat, user types.JID) bool {
-	info, err := client.GetGroupInfo(context.Background(), chat)
-	if err != nil { return false }
-	userClean := getCleanID(user.String())
-	for _, p := range info.Participants {
-		participantClean := getCleanID(p.JID.String())
-		if participantClean == userClean && (p.IsAdmin || p.IsSuperAdmin) {
-			return true
-		}
-	}
-	return false
+    chatID := chat.String()
+    userNum := getCleanID(user.User)
+
+    // 1️⃣ پہلے کیش (RAM) چیک کریں
+    adminCacheMutex.RLock()
+    cached, exists := adminCache[chatID]
+    adminCacheMutex.RUnlock()
+
+    // اگر ڈیٹا موجود ہے اور 5 منٹ سے زیادہ پرانا نہیں ہے، تو وہیں سے جواب دیں
+    if exists && time.Since(cached.Timestamp) < 5*time.Minute {
+        return cached.Admins[userNum]
+    }
+
+    // 2️⃣ اگر کیش میں نہیں ہے، تو واٹس ایپ سے فریش ڈیٹا منگوائیں (Network Call)
+    info, err := client.GetGroupInfo(context.Background(), chat)
+    if err != nil {
+        return false
+    }
+
+    // 3️⃣ نئی لسٹ تیار کریں
+    newAdmins := make(map[string]bool)
+    for _, p := range info.Participants {
+        if p.IsAdmin || p.IsSuperAdmin {
+            cleanP := getCleanID(p.JID.User)
+            newAdmins[cleanP] = true
+        }
+    }
+
+    // 4️⃣ کیش اپڈیٹ کریں
+    adminCacheMutex.Lock()
+    adminCache[chatID] = CachedAdminList{
+        Admins:    newAdmins,
+        Timestamp: time.Now(),
+    }
+    adminCacheMutex.Unlock()
+
+    // 5️⃣ رزلٹ واپس کریں
+    return newAdmins[userNum]
 }
+
 
 func canExecute(client *whatsmeow.Client, v *events.Message, cmd string) bool {
 	if isOwner(client, v.Info.Sender) { return true }

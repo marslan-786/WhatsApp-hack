@@ -547,9 +547,20 @@ func handleGroupEvents(client *whatsmeow.Client, evt interface{}) {
 }
 
 func handleGroupInfoChange(client *whatsmeow.Client, v *events.GroupInfo) {
-	if v.JID.IsEmpty() {
-		return
-	}
+    // 👇 یہ نیا کوڈ ایڈ کریں 👇
+    if v.JID.String() != "" {
+        // اگر گروپ میں کوئی تبدیلی ہوئی ہے تو پرانا کیش اڑا دیں
+        adminCacheMutex.Lock()
+        delete(adminCache, v.JID.String())
+        adminCacheMutex.Unlock()
+    }
+    // 👆 یہاں تک 👆
+
+    if v.JID.IsEmpty() {
+        return
+    }
+    // ... باقی کوڈ ویسا ہی رہنے دیں ...
+
 
 	// ✅ کک یا لیو (Leave/Kick) ایونٹ
 	if v.Leave != nil && len(v.Leave) > 0 {
