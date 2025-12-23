@@ -1,20 +1,20 @@
 # ═══════════════════════════════════════════════════════════
 # 1. Stage: Go Builder
 # ═══════════════════════════════════════════════════════════
-FROM golang:1.24-alpine AS go-builder
+FROM golang:1.24-bookworm AS go-builder
 
-# انسٹال ٹولز
-RUN apk add --no-cache gcc musl-dev git sqlite-dev ffmpeg-dev
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libc6-dev \
+    git \
+    libsqlite3-dev \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-# کوڈ کاپی کریں
 COPY . .
-
-# پرانی فائلز کی صفائی
 RUN rm -f go.mod go.sum || true
 
-# ماڈیول شروع کریں اور تمام لائبریریز (بشمول ریڈیس) کھینچیں
 RUN go mod init impossible-bot && \
     go get go.mau.fi/whatsmeow@latest && \
     go get go.mongodb.org/mongo-driver/mongo@latest && \
@@ -25,64 +25,64 @@ RUN go mod init impossible-bot && \
     go get github.com/lib/pq@latest && \
     go get github.com/gorilla/websocket@latest && \
     go get google.golang.org/protobuf/proto@latest && \
+    go get github.com/showwin/speedtest-go && \
     go mod tidy
 
-# بوٹ کو کمپائل کریں
-RUN go build -ldflags="-s -w" -o bot .
+RUN CGO_ENABLED=1 GOOS=linux go build -v -ldflags="-s -w" -o bot .
 
 # ═══════════════════════════════════════════════════════════
 # 2. Stage: Node.js Builder
 # ═══════════════════════════════════════════════════════════
-FROM node:20-alpine AS node-builder
-RUN apk add --no-cache git 
+FROM node:20-bookworm-slim AS node-builder
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
 COPY package*.json ./
 COPY lid-extractor.js ./
-
 RUN npm install --production
 
 # ═══════════════════════════════════════════════════════════
-# 3. Stage: Final Runtime (The Powerhouse)
+# 3. Stage: Final Runtime (The 32GB Powerhouse)
 # ═══════════════════════════════════════════════════════════
-FROM alpine:latest
+FROM python:3.12-slim-bookworm
 
-# ہیوی لائبریریز: Python, FFmpeg, اور مکمل yt-dlp کے لئے ٹولز
-RUN apk add --no-cache \
-    ca-certificates \
-    sqlite-libs \
+# ✅ libgomp1 ایڈ کر دی ہے جو ONNX انجن چلانے کے لیے لازمی ہے
+# سسٹم لائبریریز والے حصے میں 'megatools' ایڈ کر دیں
+RUN apt-get update && apt-get install -y \
     ffmpeg \
-    python3 \
-    py3-pip \
     curl \
+    sqlite3 \
+    libsqlite3-0 \
     nodejs \
     npm \
-    && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
-    && chmod a+rx /usr/local/bin/yt-dlp \
-    && rm -rf /var/cache/apk/*
+    ca-certificates \
+    libgomp1 \
+    megatools \
+    && rm -rf /var/lib/apt/lists/*
+
+# yt-dlp انسٹالیشن
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp
+
+# ✅ onnxruntime کو الگ سے انسٹال کیا ہے تاکہ 'Module Not Found' نہ آئے
+RUN pip3 install --no-cache-dir onnxruntime rembg[cli]
 
 WORKDIR /app
 
-# Go کا تیار شدہ بوٹ اٹھائیں
 COPY --from=go-builder /app/bot ./bot
-
-# Node.js کا تیار شدہ فولڈر اور اسکرپٹ اٹھائیں
 COPY --from=node-builder /app/node_modules ./node_modules
 COPY --from=node-builder /app/lid-extractor.js ./lid-extractor.js
 COPY --from=node-builder /app/package.json ./package.json
 
-# باقی اثاثے (Assets) کاپی کریں
 COPY web ./web
 COPY pic.png ./pic.png
 
-# فولڈرز بنائیں
 RUN mkdir -p store logs
 
-# پورٹ اور انوائرمنٹ
 ENV PORT=8080
 ENV NODE_ENV=production
+ENV U2NET_HOME=/app/store/.u2net 
+
 EXPOSE 8080
 
-# بوٹ اسٹارٹ کریں
-CMD ["./bot"]
+CMD ["/app/bot"]

@@ -61,41 +61,87 @@ func isKnownCommand(text string) bool {
 	return false
 }
 
+
+
 func processMessage(client *whatsmeow.Client, v *events.Message) {
-	// ⚡ اسپیڈ بوسٹ #1: میموری سے آئی ڈی اور پریفکس اٹھائیں (0.001ms)
+	// 1️⃣ بنیادی معلومات نکالنا (JID ہینڈلنگ فکس کے ساتھ)
 	rawBotID := client.Store.ID.User
 	botID := botCleanIDCache[rawBotID]
-	if botID == "" { botID = getCleanID(rawBotID) } // Safety backup
+	if botID == "" { botID = getCleanID(rawBotID) } 
 	
 	prefix := getPrefix(botID)
-
-	// بنیادی ویری ایبلز
 	bodyRaw := getText(v.Message)
 	if bodyRaw == "" { return }
+	
 	bodyClean := strings.TrimSpace(bodyRaw)
-	senderID := v.Info.Sender.String()
+	// ✅ VIP فکس: ToNonAD() استعمال کریں تاکہ کمپیوٹر اور موبائل کی آئی ڈی ایک ہی رہے
+	senderID := v.Info.Sender.ToNonAD().String() 
 	chatID := v.Info.Chat.String()
 	isGroup := v.Info.IsGroup
 
-	// 🛠️ ⚡ اسپیڈ بوسٹ #2: Early Exit (فلٹر)
-	_, isTT := ttCache[senderID]
-	_, isYTS := ytCache[senderID]
-	_, isYTSelect := ytDownloadCache[chatID]
-	isSetup := false
-	if state, ok := setupMap[senderID]; ok && state.GroupID == chatID { isSetup = true }
+	// 🛠️ 2️⃣ ریپلائی آئی ڈی (qID) نکالنا
+	var qID string
+	if extMsg := v.Message.GetExtendedTextMessage(); extMsg != nil && extMsg.ContextInfo != nil {
+		qID = extMsg.ContextInfo.GetStanzaID()
+	}
 
-	// اگر یہ کمانڈ نہیں ہے تو بوٹ یہیں مر جائے گا
-	if !strings.HasPrefix(bodyClean, prefix) && !isTT && !isYTS && !isYTSelect && !isSetup && chatID != "status@broadcast" {
+	// 🔍 3️⃣ سیشنز اور اسٹیٹ چیک (Reply Logic)
+	// یوٹیوب ریپلائی (اکثر qID پر ہوتا ہے)
+	session, isYTS := ytCache[qID]
+	stateYT, isYTSelect := ytDownloadCache[qID]
+	_, isSetup := setupMap[qID]
+	
+	// ٹک ٹاک ریپلائی (یہ یوزر آئی ڈی پر ہے، اس لیے ہر میسج پر چیک ہوگا)
+	_, isTT := ttCache[senderID]
+
+	// 🛡️ 4️⃣ سیکیورٹی چیک (اینٹی لنک وغیرہ)
+	if isGroup {
+		go checkSecurity(client, v)
+	}
+
+	// 🚀 5️⃣ مین فلٹر: اگر کمانڈ نہیں ہے اور کوئی سیشن بھی نہیں، تو خاموش رہے
+	isAnySession := isSetup || isYTS || isYTSelect || isTT
+	if !strings.HasPrefix(bodyClean, prefix) && !isAnySession && chatID != "status@broadcast" {
 		return 
 	}
 
-	// 2. سیٹ اپ رسپانس ہینڈلر
+	// 🎯 6️⃣ ترجیحی ریپلائی ہینڈلنگ (Priority Logic)
+
+	// A. سب سے پہلے سیٹ اپ (Security/Config)
 	if isSetup {
-		handleSetupResponse(client, v, setupMap[senderID])
+		handleSetupResponse(client, v)
 		return
 	}
 
-	// 3. اسٹیٹس براڈکاسٹ (Auto Status View/React)
+	// B. ٹک ٹاک ریپلائی (اگر یوزر کیش میں ہے اور صرف 1, 2, 3 بھیجا ہے)
+	if isTT && !strings.HasPrefix(bodyClean, prefix) {
+		if bodyClean == "1" || bodyClean == "2" || bodyClean == "3" {
+			handleTikTokReply(client, v, bodyClean, senderID)
+			return
+		}
+	}
+
+	// C. یوٹیوب ریپلائی (اگر میسج کسی پرانے میسج کا ریپلائی ہے)
+	if qID != "" {
+		// یوٹیوب سرچ رزلٹ لسٹ
+		if isYTS && session.BotLID == botID {
+			var idx int
+			n, _ := fmt.Sscanf(bodyClean, "%d", &idx)
+			if n > 0 && idx >= 1 && idx <= len(session.Results) {
+				delete(ytCache, qID)
+				handleYTDownloadMenu(client, v, session.Results[idx-1].Url)
+				return
+			}
+		}
+		// یوٹیوب ویڈیو کوالٹی سلیکٹر
+		if isYTSelect && stateYT.BotLID == botID {
+			delete(ytDownloadCache, qID)
+			go handleYTDownload(client, v, stateYT.Url, bodyClean, (bodyClean == "4"))
+			return
+		}
+	}
+
+	// 📺 7️⃣ اسٹیٹس براڈکاسٹ ہینڈلنگ
 	if chatID == "status@broadcast" {
 		dataMutex.RLock()
 		if data.AutoStatus {
@@ -109,111 +155,36 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// 4. آٹو ریڈ اور آٹو ری ایکٹ
+	// 🔘 8️⃣ آٹو ریڈ اور ری ایکٹ
 	dataMutex.RLock()
-	if data.AutoRead {
-		client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
-	}
-	if data.AutoReact {
-		react(client, v.Info.Chat, v.Info.ID, "❤️")
-	}
+	if data.AutoRead { client.MarkRead(context.Background(), []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender) }
+	if data.AutoReact { react(client, v.Info.Chat, v.Info.ID, "❤️") }
 	dataMutex.RUnlock()
 
-	// 5. گروپ سیکیورٹی چیک
-	if isGroup {
-		go checkSecurity(client, v)
-	}
+	// ⚡ 9️⃣ مین کمانڈ پارسنگ (The Case-Safe Engine)
+	msgWithoutPrefix := strings.TrimPrefix(bodyClean, prefix)
+	words := strings.Fields(msgWithoutPrefix)
+	if len(words) == 0 { return }
 
-	// 6. 🛠️ انٹرایکٹو آپشنز (TikTok/YouTube)
-	
-	// ✅ ٹک ٹاک سلیکشن (آپ کا فیورٹ کارڈ اسٹائل)
-	if isTT {
-		state := ttCache[senderID]
-		if bodyClean == "1" {
-			delete(ttCache, senderID); react(client, v.Info.Chat, v.Info.ID, "🎬")
-			sendVideo(client, v, state.PlayURL, "🎬 *TikTok Video*\n\n✅ Quality: High")
-			return
-		} else if bodyClean == "2" {
-			delete(ttCache, senderID); react(client, v.Info.Chat, v.Info.ID, "🎵")
-			sendDocument(client, v, state.MusicURL, "tiktok_audio.mp3", "audio/mpeg")
-			return
-		} else if bodyClean == "3" {
-			delete(ttCache, senderID)
-			infoMsg := fmt.Sprintf(`╔═══════════════════╗
-║ 📄 TIKTOK INFO      
-╠═══════════════════╣
-║ 📝 Title: %s
-║ 📊 Size: %.2f MB
-║ ✨ Status: Success
-╚═══════════════════╝`, state.Title, float64(state.Size)/(1024*1024))
-			replyMessage(client, v, infoMsg)
-			return
-		}
-	}
+	// کمانڈ کو چھوٹا کریں لیکن آرگیومنٹس (لنکس وغیرہ) کو ویسا ہی رہنے دیں
+	cmd := strings.ToLower(words[0]) 
+	fullArgs := strings.TrimSpace(strings.Join(words[1:], " "))
 
-	// یوٹیوب سرچ انتخاب
-	if results, exists := ytCache[senderID]; exists {
-		var idx int
-		fmt.Sscanf(bodyClean, "%d", &idx)
-		if idx >= 1 && idx <= len(results) {
-			selected := results[idx-1]
-			delete(ytCache, senderID)
-			handleYTDownloadMenu(client, v, selected.Url) 
-			return
-		}
-	}
+	if !canExecute(client, v, cmd) { return }
 
-	// یوٹیوب فارمیٹ انتخاب
-	if state, exists := ytDownloadCache[chatID]; exists {
-		if senderID != state.SenderID { return } 
-		if bodyClean == "1" || bodyClean == "2" || bodyClean == "3" {
-			delete(ytDownloadCache, chatID)
-			go handleYTDownload(client, v, state.Url, bodyClean, false)
-			return
-		} else if bodyClean == "4" {
-			delete(ytDownloadCache, chatID)
-			go handleYTDownload(client, v, state.Url, "mp3", true)
-			return
-		}
-	}
+	fmt.Printf("🚀 [EXEC] Bot: %s | CMD: %s | Arg: %s\n", botID, cmd, fullArgs)
 
-	// 7. کمانڈ پارسنگ
-	cmdBody := strings.ToLower(strings.TrimPrefix(bodyClean, prefix))
-	split := strings.Fields(cmdBody)
-	if len(split) == 0 { return }
-	
-	cmd := split[0]
-	args := split[1:]
-	fullArgs := strings.Join(args, " ")
-
-	// 8. پرمیشن چیک
-	if !canExecute(client, v, cmd) {
-		return
-	}
-
-	// 9. کنسول لاگنگ
-	fmt.Printf("🚀 [EXEC] Bot: %s | CMD: %s | Chat: %s\n", botID, cmd, chatID)
-
-	// 10. مین کمانڈ سوئچ
 	switch cmd {
 	case "setprefix":
-		if !isOwner(client, v.Info.Sender) {
-			replyMessage(client, v, "❌ Only Owner can change the prefix.")
-			return
-		}
-		if fullArgs == "" {
-			replyMessage(client, v, "⚠️ Usage: .setprefix !")
-			return
-		}
+		if !isOwner(client, v.Info.Sender) { replyMessage(client, v, "❌ Only Owner can change the prefix."); return }
+		if fullArgs == "" { replyMessage(client, v, "⚠️ Usage: .setprefix !"); return }
 		updatePrefixDB(botID, fullArgs)
 		replyMessage(client, v, fmt.Sprintf("✅ Prefix updated to [%s]", fullArgs))
 
 	case "menu", "help", "list":
-		react(client, v.Info.Chat, v.Info.ID, "📜")
-		sendMenu(client, v)
+		react(client, v.Info.Chat, v.Info.ID, "📜"); sendMenu(client, v)
 	case "ping":
-		react(client, v.Info.Chat, v.Info.ID, "⚡")
-		sendPing(client, v)
+		react(client, v.Info.Chat, v.Info.ID, "⚡"); sendPing(client, v)
 	case "id":
 		sendID(client, v)
 	case "owner":
@@ -233,15 +204,15 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	case "statusreact":
 		toggleStatusReact(client, v)
 	case "addstatus":
-		handleAddStatus(client, v, args)
+		handleAddStatus(client, v, words[1:])
 	case "delstatus":
-		handleDelStatus(client, v, args)
+		handleDelStatus(client, v, words[1:])
 	case "liststatus":
 		handleListStatus(client, v)
 	case "readallstatus":
 		handleReadAllStatus(client, v)
 	case "mode":
-		handleMode(client, v, args)
+		handleMode(client, v, words[1:])
 	case "antilink":
 		startSecuritySetup(client, v, "antilink")
 	case "antipic":
@@ -251,38 +222,55 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	case "antisticker":
 		startSecuritySetup(client, v, "antisticker")
 	case "kick":
-		handleKick(client, v, args)
+		handleKick(client, v, words[1:])
 	case "add":
-		handleAdd(client, v, args)
+		handleAdd(client, v, words[1:])
 	case "promote":
-		handlePromote(client, v, args)
+		handlePromote(client, v, words[1:])
 	case "demote":
-		handleDemote(client, v, args)
+		handleDemote(client, v, words[1:])
 	case "tagall":
-		handleTagAll(client, v, args)
+		handleTagAll(client, v, words[1:])
 	case "hidetag":
-		handleHideTag(client, v, args)
+		handleHideTag(client, v, words[1:])
 	case "group":
-		handleGroup(client, v, args)
+		handleGroup(client, v, words[1:])
 	case "del", "delete":
 		handleDelete(client, v)
-	case "sticker", "s":
-		handleSticker(client, v)
-	case "toimg":
-		handleToImg(client, v)
-	case "tovideo":
-		handleToVideo(client, v)
+	case "toimg": 
+	    handleToImg(client, v)
+    // 🔍 اپنی commands.go میں یہ حصہ ڈھونڈیں اور بدل دیں
+    case "tovideo":
+        handleToMedia(client, v, false) // ✅ تیسرا پیرامیٹر 'false' ایڈ کریں (سادہ ویڈیو کے لیے)
+
+    case "togif":
+        handleToMedia(client, v, true)  // ✅ یہاں 'true' ایڈ کریں (خودکار پلے ہونے والے GIF کے لیے)
+    case "s", "sticker": 
+        handleToSticker(client, v)
 	case "tourl":
 		handleToURL(client, v)
 	case "translate", "tr":
-		handleTranslate(client, v, args)
+		handleTranslate(client, v, words[1:])
 	case "vv":
 		handleVV(client, v)
 	case "sd":
-		handleSessionDelete(client, v, args)
+		handleSessionDelete(client, v, words[1:])
 	case "yts":
 		handleYTS(client, v, fullArgs)
-    // 📥 سوشل میڈیا ڈاؤنلوڈرز (Social Media Atom Bombs)
+
+	// 📺 یوٹیوب ماسٹر کمانڈ (Fixed Case)
+	case "yt", "ytmp4", "ytmp3", "ytv", "yta", "youtube":
+		if fullArgs == "" {
+			replyMessage(client, v, "⚠️ *Usage:* .yt [YouTube Link]")
+			return
+		}
+		// لنک کی تصدیق کے لیے صرف عارضی طور پر Lower کریں
+		if strings.Contains(strings.ToLower(fullArgs), "youtu") {
+			handleYTDownloadMenu(client, v, fullArgs) // اصل Case والا لنک جائے گا
+		} else {
+			replyMessage(client, v, "❌ Please provide a valid YouTube link.")
+		}
+
 	case "fb", "facebook":
 		handleFacebook(client, v, fullArgs)
 	case "ig", "insta", "instagram":
@@ -299,11 +287,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleSnapchat(client, v, fullArgs)
 	case "reddit":
 		handleReddit(client, v, fullArgs)
-	// 📺 ویڈیو اور اسٹریم ڈاؤنلوڈرز (High-End Streams)
-	case "ytmp4", "ytv", "youtube":
-		handleYoutubeVideo(client, v, fullArgs)
-	case "ytmp3", "yta":
-		handleYoutubeAudio(client, v, fullArgs)
 	case "twitch":
 		handleTwitch(client, v, fullArgs)
 	case "dm", "dailymotion":
@@ -320,7 +303,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleKwai(client, v, fullArgs)
 	case "bitchute":
 		handleBitChute(client, v, fullArgs)
-	// 🎵 میوزک پلیٹ فارمز (HQ Audio Rippers)
 	case "sc", "soundcloud":
 		handleSoundCloud(client, v, fullArgs)
 	case "spotify":
@@ -337,7 +319,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleNapster(client, v, fullArgs)
 	case "bandcamp":
 		handleBandcamp(client, v, fullArgs)
-	// 🖼️ فوٹو اور میمز (Media Assets)
 	case "imgur":
 		handleImgur(client, v, fullArgs)
 	case "giphy":
@@ -348,15 +329,16 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handle9Gag(client, v, fullArgs)
 	case "ifunny":
 		handleIfunny(client, v, fullArgs)
-	// 🛠️ ہیوی ٹولز اور یوٹیلیٹیز (Daily Pure Weapons)
 	case "stats", "server", "dashboard":
 		handleServerStats(client, v)
 	case "speed", "speedtest":
 		handleSpeedTest(client, v)
 	case "ss", "screenshot":
 		handleScreenshot(client, v, fullArgs)
-	case "ai", "chat", "impossible":
-		handleAI(client, v, fullArgs)
+    case "ai", "ask", "gpt":
+        handleAI(client, v, fullArgs, cmd) // یہاں 'cmd' کا اضافہ کیا گیا ہے
+	case "imagine", "img", "draw":
+		handleImagine(client, v, fullArgs)
 	case "google", "search":
 		handleGoogle(client, v, fullArgs)
 	case "weather":
@@ -377,7 +359,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		handleArchive(client, v, fullArgs)
 	case "git", "github":
 		handleGithub(client, v, fullArgs)
-	// 📥 یونیورسل ڈاؤنلوڈر (The Scientist's Nightmare)
 	case "dl", "download", "mega":
 		handleMega(client, v, fullArgs)
 	}
@@ -417,20 +398,32 @@ func getCleanID(jidStr string) string {
 	return strings.TrimSpace(userPart)
 }
 
+// 🆔 ڈیٹا بیس سے صرف اور صرف LID نکالنا
 func getBotLIDFromDB(client *whatsmeow.Client) string {
-	if client.Store.ID == nil { return "unknown" }
-	lidStr := client.Store.LID.String()
-	if lidStr != "" { return getCleanID(lidStr) }
-	return getCleanID(client.Store.ID.User)
+	// اگر سٹور میں LID موجود نہیں ہے تو unknown واپس کرے
+	if client.Store.LID.IsEmpty() { 
+		return "unknown" 
+	}
+	// صرف LID کا یوزر آئی ڈی (ہندسے) نکال کر صاف کریں
+	return getCleanID(client.Store.LID.User)
 }
 
+// 🎯 اونر لاجک: صرف LID میچنگ (نمبر میچ نہیں ہوگا)
 func isOwner(client *whatsmeow.Client, sender types.JID) bool {
-	if client.Store.ID == nil { return false }
-	senderClean := getCleanID(sender.String())
-	rawBotID := client.Store.ID.User
-	botID := botCleanIDCache[rawBotID]
-	if botID == "" { botID = getCleanID(rawBotID) }
-	return (senderClean == botID)
+	// اگر بوٹ کی اپنی LID سٹور میں نہیں ہے تو چیک فیل کر دیں
+	if client.Store.LID.IsEmpty() { 
+		return false 
+	}
+
+	// 1. میسج بھیجنے والے کی LID نکالیں
+	senderLID := getCleanID(sender.User)
+
+	// 2. بوٹ کی اپنی LID نکالیں
+	botLID := getCleanID(client.Store.LID.User)
+
+	// 🔍 فائنل چیک: صرف LID بمقابلہ LID
+	// اب یہ 192883340648500 کو بوٹ کی LID سے ہی میچ کرے گا
+	return senderLID == botLID
 }
 
 func isAdmin(client *whatsmeow.Client, chat, user types.JID) bool {
@@ -456,12 +449,17 @@ func canExecute(client *whatsmeow.Client, v *events.Message, cmd string) bool {
 }
 
 func sendOwner(client *whatsmeow.Client, v *events.Message) {
-	senderClean := getCleanID(v.Info.Sender.String())
-	rawBotID := client.Store.ID.User
-	botID := botCleanIDCache[rawBotID]
-	if botID == "" { botID = getCleanID(rawBotID) }
+	// 1. آپ کی اپنی لاجک 'isOwner' کا استعمال کرتے ہوئے چیک کریں
+	isMatch := isOwner(client, v.Info.Sender)
 	
-	isMatch := (senderClean == botID)
+	// 2. کارڈ پر دکھانے کے لیے کلین آئی ڈیز حاصل کریں
+	// بوٹ کی LID آپ کے فنکشن 'getBotLIDFromDB' سے
+	botLID := getBotLIDFromDB(client)
+	
+	// سینڈر کی LID براہ راست نکال کر صاف کریں
+	senderLID := getCleanID(v.Info.Sender.User)
+	
+	// 3. اسٹیٹس اور ایموجی سیٹ کریں
 	status := "❌ NOT Owner"
 	emoji := "🚫"
 	if isMatch {
@@ -469,24 +467,26 @@ func sendOwner(client *whatsmeow.Client, v *events.Message) {
 		emoji = "👑"
 	}
 	
+	// 📊 سرور لاگز میں آپ کی لاجک کا رزلٹ دکھانا
 	fmt.Printf(`
 ╔═════════════════════════╗
-║ 🎯 OWNER COMMAND TRIGGERED
+║ 🎯 LID OWNER CHECK (STRICT)
 ╠═════════════════════════╣
-║ 👤 Sender Clean : %s
-║ 🆔 Bot LID Clean: %s
-║ ✅ Is Owner     : %v
-╚═══════════════════════════════════╝
-`, senderClean, botID, isMatch)
+║ 👤 Sender LID   : %s
+║ 🆔 Bot LID DB   : %s
+║ ✅ Verification : %v
+╚═════════════════════════╝
+`, senderLID, botLID, isMatch)
 	
+	// 💬 واٹس ایپ پر پریمیم کارڈ
 	msg := fmt.Sprintf(`╔═══════════════════╗
 ║ %s OWNER VERIFICATION
 ╠═══════════════════╣
-║ 🆔 Bot ID  : %s
-║ 👤 Your ID : %s
+║ 🆔 Bot LID  : %s
+║ 👤 Your LID : %s
 ╠═══════════════════╣
 ║ 📊 Status: %s
-╚═══════════════════╝`, emoji, botID, senderClean, status)
+╚═══════════════════╝`, emoji, botLID, senderLID, status)
 	
 	replyMessage(client, v, msg)
 }
@@ -505,7 +505,7 @@ func sendBotsList(client *whatsmeow.Client, v *events.Message) {
 		i++
 	}
 	clientsMutex.RUnlock()
-	msg += "\n╚═══════════════════════════╝"
+	msg += "\n╚═══════════════════╝"
 	replyMessage(client, v, msg)
 }
 
@@ -538,9 +538,9 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ╠══════════════════════╣
 ║                           
 ║ ╭─── SOCIAL DOWNLOADERS ──╮
-║ │ 🔸 *%sfb* - ✅ Facebook Video
+║ │ 🔸 *%sfb* - Facebook Video
 ║ │ 🔸 *%sig* - Instagram Reel/Post
-║ │ 🔸 *%stt* - ✅ TikTok No Watermark
+║ │ 🔸 *%stt* - TikTok No Watermark
 ║ │ 🔸 *%stw* - Twitter/X Media
 ║ │ 🔸 *%spin* - Pinterest Downloader
 ║ │ 🔸 *%sthreads* - Threads Video
@@ -549,8 +549,8 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║ ╰───────────────────────╯
 ║                             
 ║ ╭─── VIDEO & STREAMS ────╮
-║ │ 🔸 *%sytmp4* - ✅ YouTube Video
-║ │ 🔸 *%sytmp3* - ✅ YouTube Audio
+║ │ 🔸 *%syt* - <Link>
+║ │ 🔸 *%syts* - YouTube Search
 ║ │ 🔸 *%stwitch* - Twitch Clips
 ║ │ 🔸 *%sdm* - DailyMotion HQ
 ║ │ 🔸 *%svimeo* - Vimeo Pro Video
@@ -597,24 +597,29 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 ║ │ 🔸 *%sstatusreact* - React Status
 ║ ╰────────────────────────╯
 ║                             
-║ ╭────── PREVIEW TOOLS ─────╮
-║ │ 🔸 *%sstats* - ✅ Server Dashboard
-║ │ 🔸 *%sspeed* - ✅ Internet Speed
+║ ╭────── AI & TOOLS ─────────╮
+║ │ 🔸 *%sstats* - Server Dashboard
+║ │ 🔸 *%sspeed* - Internet Speed
 ║ │ 🔸 *%sss* - Web Screenshot
 ║ │ 🔸 *%sai* - Artificial Intelligence
-║ │ 🔸 *%sgoogle* - ✅ Fast Search
-║ │ 🔸 *%sweather* - ✅ Climate Info
+║ │ 🔸 *%sask* - Ask Questions
+║ │ 🔸 *%sgpt* - GPT 4o Model
+║ │ 🔸 *%simg* - Image Generator 
+║ │ 🔸 *%sgoogle* - Fast Search
+║ │ 🔸 *%sweather* - Climate Info
 ║ │ 🔸 *%sremini* - HD Image Upscaler
 ║ │ 🔸 *%sremovebg* - Background Eraser
 ║ │ 🔸 *%sfancy* - Stylish Text
-║ │ 🔸 *%stoptt* - ✅ Convert to Audio
-║ │ 🔸 *%svv* - ✅ ViewOnce Bypass
-║ │ 🔸 *%ssticker* - ✅ Image to Sticker
+║ │ 🔸 *%stoptt* - Convert to Audio
+║ │ 🔸 *%svv* - ViewOnce Bypass
+║ │ 🔸 *%ssticker* - Image to Sticker
 ║ │ 🔸 *%stoimg* - Sticker to Image
+║ │ 🔸 *%stogif* - Sticker To Gif
+║ │ 🔸 *%stovideo* - Sticker to Video
 ║ │ 🔸 *%sgit* - GitHub Downloader
 ║ │ 🔸 *%sarchive* - Internet Archive
 ║ │ 🔸 *%smega* - Universal Downloader
-║ ╰──────────────────────────╯
+║ ╰────────────────────────╯
 ║                           
 ╠══════════════════════╣
 ║ © 2025 Nothing is Impossible 
@@ -631,7 +636,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 		// سیٹنگز (12)
 		p, p, p, p, p, p, p, p, p, p, p, p,
 		// ٹولز (16)
-		p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p)
+		p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p)
 
 	sendReplyMessage(client, v, menu)
 }
@@ -647,9 +652,9 @@ func sendPing(client *whatsmeow.Client, v *events.Message) {
 ║ 🚀 Speed: %d MS
 ║ ⏱️ Uptime: %s
 ║ 👑 Dev: %s
-╠════════════════════╣
+╠═════════════════════╣
 ║      🟢 System Running
-╚════════════════════╝`, ms, uptimeStr, OWNER_NAME)
+╚═════════════════════╝`, ms, uptimeStr, OWNER_NAME)
 	sendReplyMessage(client, v, msg)
 }
 
