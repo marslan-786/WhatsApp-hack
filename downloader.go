@@ -167,9 +167,11 @@ func sendAudio(client *whatsmeow.Client, v *events.Message, audioURL string) {
 	if err != nil { return }
 	defer resp.Body.Close()
 
-	data, _ := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body) // یہاں پہلا 'err' ڈیکلیئر ہوا
+	if err != nil { return }
 
 	// 2️⃣ واٹس ایپ پر اپلوڈ کریں
+	// 🛠️ فکس: یہاں 'up' نیا ہے لیکن 'err' پرانا ہے، اس لیے ':=' چل جائے گا
 	up, err := client.Upload(context.Background(), data, whatsmeow.MediaAudio)
 	if err != nil { return }
 
@@ -183,7 +185,7 @@ func sendAudio(client *whatsmeow.Client, v *events.Message, audioURL string) {
 			FileSHA256:    up.FileSHA256,
 			FileEncSHA256: up.FileEncSHA256,
 			FileLength:    proto.Uint64(uint64(len(data))),
-			Ptt:           proto.Bool(true), // 👈 یہ اسے وائس نوٹ بنائے گا
+			PTT:           proto.Bool(true), // ✅ فکس ۱: 'Ptt' کو 'PTT' کر دیا گیا (All Caps)
 		},
 	})
 }
