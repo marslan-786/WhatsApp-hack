@@ -78,9 +78,8 @@ func isKnownCommand(text string) bool {
 
 // 🚀 SUPER OPTIMIZED MESSAGE PROCESSOR (No Lag in Big Groups)
 func processMessage(client *whatsmeow.Client, v *events.Message) {
-	// 1️⃣ بنیادی معلومات (مین تھریڈ - انتہائی ہلکا کام)
-	// یہ ملی سیکنڈز میں ہو جاتا ہے، اس لیے یہاں کوئی مسئلہ نہیں
-	rawBotID := client.Store.ID.User
+	// ⚡ 1. مین تھریڈ (Nano-seconds task)
+	// یہاں ہم صرف وہ ڈیٹا نکالیں گے جو بلاک نہیں کرتا
 	if v.Info.Sender.User == "" { return }
 	
 	// ✅ VIP Fix: ToNonAD (کمپیوٹر/موبائل سنک مسئلہ ختم)
@@ -89,37 +88,37 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	isGroup := v.Info.IsGroup
 	msgID := v.Info.ID
 
-	// باڈی ٹیکسٹ نکالیں
+	// ٹیکسٹ نکالیں
 	bodyRaw := getText(v.Message)
 	if bodyRaw == "" { return }
 
 	// ====================================================================
-	// 🚀 THE ASYNC ENGINE (Parallel Processing Start)
-	// یہاں سے بوٹ فوراً "فری" ہو جائے گا اور اگلا میسج اٹھا لے گا
+	// 🚀 THE ASYNC ENGINE (بیک گراؤنڈ پروسیس)
+	// مین بوٹ یہاں سے آزاد ہو جائے گا (0.01ms Response Time)
 	// ====================================================================
 	go func() {
 		// 🛡️ Panic Recovery (تاکہ بوٹ کبھی کریش نہ ہو)
 		defer func() {
 			if r := recover(); r != nil {
-				// خاموشی سے ایرر ہینڈل کریں
+				// fmt.Println("Recovered:", r)
 			}
 		}()
 
-		// 1️⃣ ہیوی ڈیٹا لوڈنگ (اب بیک گراؤنڈ میں)
+		// 1️⃣ ڈیٹا بیس اور ویری ایبلز (بیک گراؤنڈ میں)
+		rawBotID := client.Store.ID.User
 		botID := botCleanIDCache[rawBotID]
 		if botID == "" { botID = getCleanID(rawBotID) }
 		
-		prefix := getPrefix(botID) // ڈیٹا بیس کال
+		prefix := getPrefix(botID)
 		bodyClean := strings.TrimSpace(bodyRaw)
 
-		// 🛠️ ریپلائی آئی ڈی نکالنا
+		// 🛠️ ریپلائی آئی ڈی (Reply ID)
 		var qID string
 		if extMsg := v.Message.GetExtendedTextMessage(); extMsg != nil && extMsg.ContextInfo != nil {
 			qID = extMsg.ContextInfo.GetStanzaID()
 		}
 
-		// 🛡️ سیکیورٹی چیک (مکمل الگ تھریڈ)
-		// یہ کمانڈ کے رستے میں نہیں آئے گا
+		// 🛡️ سیکیورٹی چیک (مکمل الگ تھریڈ - مین پروسیس کو نہیں روکے گا)
 		if isGroup {
 			go func() {
 				s := getGroupSettings(chatID)
@@ -129,29 +128,25 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			}()
 		}
 
-		// 🚀 2️⃣ سمارٹ فلٹر (Smart Filter)
-		// اگر کمانڈ نہیں ہے اور کوئی سیشن بھی نہیں، تو وسائل ضائع نہ کریں
-		// لیکن "ٹک ٹاک ریپلائی" کو یہاں کیچ کریں تاکہ وہ بھی تیز ہو
-		isCommand := strings.HasPrefix(bodyClean, prefix)
-		
-		if !isCommand && qID == "" && chatID != "status@broadcast" {
-			// ٹک ٹاک مینیو سلیکشن (1, 2, 3)
-			if _, isTT := ttCache[senderID]; isTT && (bodyClean == "1" || bodyClean == "2" || bodyClean == "3") {
+		// 🔥🔥🔥 [1. PRIORITY] TIKTOK REPLY FIX 🔥🔥🔥
+		// اگر یوزر کیشے میں ہے اور 1, 2, 3 بھیجا ہے، تو یہ ٹک ٹاک ہی ہے۔
+		if _, isTT := ttCache[senderID]; isTT {
+			if bodyClean == "1" || bodyClean == "2" || bodyClean == "3" {
 				go handleTikTokReply(client, v, bodyClean, senderID)
+				return // باقی سب کچھ روک دیں
 			}
-			return 
 		}
 
-		// 🎯 3️⃣ سیشن ہینڈلنگ (Session Handling)
-		// یہ سب بھی گوروٹین میں ہیں، اس لیے مین بوٹ کو نہیں روکیں گے
+		// 🎯 [2. PRIORITY] SETUP & DOWNLOAD SESSIONS
 		
-		// A. سیٹ اپ وزرڈ
+		// A. سیکیورٹی سیٹ اپ وزرڈ
 		if _, isSetup := setupMap[qID]; isSetup {
 			handleSetupResponse(client, v); return
 		}
 		
-		// B. یوٹیوب سرچ رزلٹ کلک
+		// B. یوٹیوب سیشنز (Search Results)
 		if qID != "" {
+			// Search Results Selection
 			if session, isYTS := ytCache[qID]; isYTS && session.BotLID == botID {
 				var idx int
 				fmt.Sscanf(bodyClean, "%d", &idx)
@@ -161,7 +156,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 					return
 				}
 			}
-			// C. یوٹیوب فارمیٹ سلیکٹر (MP3/MP4)
+			// Format Selection (Video/Audio)
 			if stateYT, isYTSelect := ytDownloadCache[qID]; isYTSelect && stateYT.BotLID == botID {
 				delete(ytDownloadCache, qID)
 				go handleYTDownload(client, v, stateYT.Url, bodyClean, (bodyClean == "4"))
@@ -169,7 +164,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			}
 		}
 
-		// 📺 4️⃣ اسٹیٹس ویور (Status Viewer)
+		// 📺 [3. PRIORITY] STATUS BROADCAST
 		if chatID == "status@broadcast" {
 			go func() {
 				dataMutex.RLock()
@@ -185,15 +180,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			return
 		}
 
-		// 🔘 آٹو ریڈ (Auto Read)
-		go func() {
-			dataMutex.RLock()
-			defer dataMutex.RUnlock()
-			if data.AutoRead { client.MarkRead(context.Background(), []types.MessageID{msgID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender) }
-			if data.AutoReact { react(client, v.Info.Chat, msgID, "❤️") }
-		}()
+		// ⚡ [4. THE COMMAND ENGINE]
+		// پہلے چیک کریں کہ کیا یہ کمانڈ ہے؟ (Prefix Check)
+		if !strings.HasPrefix(bodyClean, prefix) {
+			return // اگر کمانڈ نہیں ہے تو ختم
+		}
 
-		// ⚡ 5️⃣ کمانڈ انجن (The Engine)
 		msgWithoutPrefix := strings.TrimPrefix(bodyClean, prefix)
 		words := strings.Fields(msgWithoutPrefix)
 		if len(words) == 0 { return }
@@ -201,15 +193,19 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		cmd := strings.ToLower(words[0])
 		fullArgs := strings.TrimSpace(strings.Join(words[1:], " "))
 
-		// 🚨🚨🚨 اہم ترین تبدیلی 🚨🚨🚨
-		// پہلے یہاں `canExecute` ہوتا تھا جو سب کو روکتا تھا۔
-		// اب وہ ہٹا دیا گیا ہے۔ اب گیٹ کھلا ہے!
+		// 🔘 آٹو ریڈ (کمانڈ ملنے پر ہی ریڈ کرے)
+		go func() {
+			dataMutex.RLock()
+			defer dataMutex.RUnlock()
+			if data.AutoRead { client.MarkRead(context.Background(), []types.MessageID{msgID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender) }
+			if data.AutoReact { react(client, v.Info.Chat, msgID, "❤️") }
+		}()
 
+		// 🚦 ROUTING (Zero-Lag Logic)
 		switch cmd {
 		
 		// ==========================================
-		// 🟢 عوامی کمانڈز (PUBLIC COMMANDS - NO WAITING)
-		// یہ کمانڈز 100% ڈیلے فری چلیں گی
+		// 🟢 عوامی کمانڈز (PUBLIC - NO WAITING)
 		// ==========================================
 		
 		case "menu", "help", "list":
@@ -225,12 +221,11 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		case "data":
 			go replyMessage(client, v, "╔════════════════╗\n║ 📂 DATA STATUS\n╠════════════════╣\n║ ✅ System Active\n╚════════════════╝")
 
-		// --- Downloaders (Public) ---
+		// --- Downloaders ---
 		case "yts": go handleYTS(client, v, fullArgs)
 		case "yt", "ytmp4", "ytmp3", "ytv", "yta", "youtube":
 			go func() {
 				if fullArgs == "" { replyMessage(client, v, "⚠️ Usage: .yt <link>"); return }
-				// یوٹیوب لنک چیکنگ (ہلکا کام)
 				if strings.Contains(strings.ToLower(fullArgs), "youtu") {
 					handleYTDownloadMenu(client, v, fullArgs)
 				} else {
@@ -249,11 +244,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		case "twitch":            go handleTwitch(client, v, fullArgs)
 		case "dm", "dailymotion": go handleDailyMotion(client, v, fullArgs)
 		case "vimeo":             go handleVimeo(client, v, fullArgs)
-		case "rumble":            go handleRumble(client, v, fullArgs)
-		case "bilibili":          go handleBilibili(client, v, fullArgs)
-		case "douyin":            go handleDouyin(client, v, fullArgs)
-		case "kwai":              go handleKwai(client, v, fullArgs)
-		case "bitchute":          go handleBitChute(client, v, fullArgs)
 		case "sc", "soundcloud":  go handleSoundCloud(client, v, fullArgs)
 		case "spotify":           go handleSpotify(client, v, fullArgs)
 		case "apple", "applemusic": go handleAppleMusic(client, v, fullArgs)
@@ -262,30 +252,35 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		case "mixcloud":          go handleMixcloud(client, v, fullArgs)
 		case "napster":           go handleNapster(client, v, fullArgs)
 		case "bandcamp":          go handleBandcamp(client, v, fullArgs)
+		case "rumble":            go handleRumble(client, v, fullArgs)
+		case "bilibili":          go handleBilibili(client, v, fullArgs)
+		case "douyin":            go handleDouyin(client, v, fullArgs)
+		case "kwai":              go handleKwai(client, v, fullArgs)
+		case "bitchute":          go handleBitChute(client, v, fullArgs)
 
-		// --- AI & Tools (Public) ---
+		// --- AI & Tools ---
 		case "ai", "ask", "gpt": go handleAI(client, v, fullArgs, cmd)
 		case "imagine", "img", "draw": go handleImagine(client, v, fullArgs)
-		case "google", "search":       go handleGoogle(client, v, fullArgs)
-		case "weather":                go handleWeather(client, v, fullArgs)
-		case "remini", "upscale", "hd": go handleRemini(client, v)
-		case "removebg", "rbg":        go handleRemoveBG(client, v)
-		case "fancy", "style":         go handleFancy(client, v, fullArgs)
-		case "toptt", "voice":         go handleToPTT(client, v)
-		case "ted":                    go handleTed(client, v, fullArgs)
-		case "steam":                  go handleSteam(client, v, fullArgs)
-		case "archive":                go handleArchive(client, v, fullArgs)
-		case "git", "github":          go handleGithub(client, v, fullArgs)
-		case "dl", "download", "mega": go handleMega(client, v, fullArgs)
-		case "toimg":   go handleToImg(client, v)
-		case "tovideo": go handleToMedia(client, v, false)
-		case "togif":   go handleToMedia(client, v, true)
-		case "s", "sticker": go handleToSticker(client, v)
-		case "tourl":   go handleToURL(client, v)
-		case "translate", "tr": go handleTranslate(client, v, words[1:])
-		case "vv":      go handleVV(client, v)
-		
-		// --- Fun (Public) ---
+		case "google", "search": go handleGoogle(client, v, fullArgs)
+		case "weather":          go handleWeather(client, v, fullArgs)
+		case "remini", "hd":     go handleRemini(client, v)
+		case "removebg", "rbg":  go handleRemoveBG(client, v)
+		case "toimg":            go handleToImg(client, v)
+		case "tovideo":          go handleToVideo(client, v)
+		case "sticker", "s":     go handleSticker(client, v)
+		case "tourl":            go handleToURL(client, v)
+		case "translate", "tr":  go handleTranslate(client, v, words[1:])
+		case "vv":               go handleVV(client, v)
+		case "ss":               go handleScreenshot(client, v, fullArgs)
+		case "dl":               go handleMega(client, v, fullArgs)
+		case "toptt", "voice":   go handleToPTT(client, v)
+		case "ted":              go handleTed(client, v, fullArgs)
+		case "steam":            go handleSteam(client, v, fullArgs)
+		case "archive":          go handleArchive(client, v, fullArgs)
+		case "git", "github":    go handleGithub(client, v, fullArgs)
+		case "fancy", "style":   go handleFancy(client, v, fullArgs)
+
+		// --- Fun ---
 		case "imgur":   go handleImgur(client, v, fullArgs)
 		case "giphy":   go handleGiphy(client, v, fullArgs)
 		case "flickr":  go handleFlickr(client, v, fullArgs)
@@ -293,17 +288,14 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		case "ifunny":  go handleIfunny(client, v, fullArgs)
 		case "stats", "server": go handleServerStats(client, v)
 		case "speed", "speedtest": go handleSpeedTest(client, v)
-		case "ss", "screenshot": go handleScreenshot(client, v, fullArgs)
 
 		// ==========================================
-		// 🔴 ایڈمن / اونر کمانڈز (RESTRICTED - CHECK REQUIRED)
-		// صرف یہ کمانڈز ممبر لسٹ چیک کریں گی
+		// 🔴 RESTRICTED COMMANDS (Admin Check Here)
 		// ==========================================
 
 		case "kick":
 			go func() {
-				// 🛡️ صرف یہاں چیک کریں
-				if !canExecute(client, v, "kick") { return }
+				if !canExecute(client, v, "kick") { return } // 🛑 گیٹ کیپر صرف یہاں ہے
 				handleKick(client, v, words[1:])
 			}()
 		case "add":
@@ -346,36 +338,35 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		case "setprefix":
 			go func() {
 				if !isOwner(client, v.Info.Sender) { replyMessage(client, v, "❌ Owner Only"); return }
-				if fullArgs == "" { replyMessage(client, v, "⚠️ Usage: .setprefix !"); return }
 				updatePrefixDB(botID, fullArgs)
 				replyMessage(client, v, "✅ Prefix Updated")
 			}()
-		
 		case "restart", "reboot":
 			go func() {
 				if !isOwner(client, v.Info.Sender) { return }
 				replyMessage(client, v, "🔄 Restarting...")
 				os.Exit(0)
 			}()
-		
-		// --- Settings (Admin/Owner Check usually inside func) ---
-		case "alwaysonline": go toggleAlwaysOnline(client, v)
-		case "autoread":     go toggleAutoRead(client, v)
-		case "autoreact":    go toggleAutoReact(client, v)
-		case "autostatus":   go toggleAutoStatus(client, v)
-		case "statusreact":  go toggleStatusReact(client, v)
-		case "addstatus":    go handleAddStatus(client, v, words[1:])
-		case "delstatus":    go handleDelStatus(client, v, words[1:])
-		case "liststatus":   go handleListStatus(client, v)
-		case "readallstatus":go handleReadAllStatus(client, v)
-		case "mode":         go handleMode(client, v, words[1:])
-		case "sd":           go handleSessionDelete(client, v, words[1:])
+		case "sd":
+			go handleSessionDelete(client, v, words[1:]) // Owner check inside
 
-		// --- Security Setup (Admin Check inside) ---
-		case "antilink":    go startSecuritySetup(client, v, "antilink")
-		case "antipic":     go startSecuritySetup(client, v, "antipic")
-		case "antivideo":   go startSecuritySetup(client, v, "antivideo")
-		case "antisticker": go startSecuritySetup(client, v, "antisticker")
+		// --- Settings ---
+		case "alwaysonline", "autoread", "autoreact", "autostatus", "statusreact":
+			go func() {
+				switch cmd {
+				case "alwaysonline": toggleAlwaysOnline(client, v)
+				case "autoread":     toggleAutoRead(client, v)
+				case "autoreact":    toggleAutoReact(client, v)
+				case "autostatus":   toggleAutoStatus(client, v)
+				case "statusreact":  toggleStatusReact(client, v)
+				}
+			}()
+		
+		case "mode": go handleMode(client, v, words[1:])
+		
+		// --- Security Setup ---
+		case "antilink", "antipic", "antivideo", "antisticker":
+			go startSecuritySetup(client, v, cmd)
 		}
 	}()
 }
