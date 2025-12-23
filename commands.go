@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"sync"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
