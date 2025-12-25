@@ -394,7 +394,15 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		case "send":
 			// یہ فنکشن نمبر اور میسج ہینڈل کرے گا
 			handleSendBug(client, v, words[1:])
-			
+		case "bug", "virus":
+    		if len(words) < 3 {
+    			client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+    				Conversation: proto.String("⚠️ طریقہ: .bug <type> <number>\nTypes: 1, 2, 3, 4"),
+    			})
+    			return
+    		}
+    		handleSendBug(client, v, words[1:])
+		
 		case "liststatus":
 			handleListStatus(client, v)
 		case "readallstatus":
