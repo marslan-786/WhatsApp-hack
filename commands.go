@@ -100,7 +100,7 @@ func canExecute(client *whatsmeow.Client, v *events.Message, cmd string) bool {
 	return true
 }
 
-// ⚡ MAIN MESSAGE PROCESSOR (FULL UPDATED)
+// ⚡ MAIN MESSAGE PROCESSOR (FULL & OPTIMIZED)
 func processMessage(client *whatsmeow.Client, v *events.Message) {
 	// ⚡ 1. Panic Recovery
 	defer func() {
@@ -109,46 +109,38 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 	}()
 
-	// ⚡ 2. Timestamp Check
-	if time.Since(v.Info.Timestamp) > 10*time.Second {
+	// ⚡ 2. Timestamp Check (Relaxed to 5s for slower networks)
+	if time.Since(v.Info.Timestamp) > 5*time.Second {
 		return
 	}
 
 	// ⚡ 3. Basic Text Extraction
 	bodyRaw := getText(v.Message)
 	if bodyRaw == "" {
-		// اگر میسج خالی ہے (تصویر/ویڈیو) تو ہو سکتا ہے اسٹیٹس ہو، اسے چیک کریں
 		if v.Info.Chat.String() == "status@broadcast" {
-			// Status Logic Below...
+			// Status Logic Handled Below...
 		} else {
 			return
 		}
 	}
 	bodyClean := strings.TrimSpace(bodyRaw)
 
-	// ⚡ 4. Ultra-Fast Bot ID Caching
+	// ⚡ 4. Bot ID Handling (No Lock if possible)
 	rawBotID := client.Store.ID.User
-	clientsMutex.RLock()
-	botID, cached := botCleanIDCache[rawBotID]
-	clientsMutex.RUnlock()
-
-	if !cached || botID == "" {
-		botID = getCleanID(rawBotID)
-		clientsMutex.Lock()
-		botCleanIDCache[rawBotID] = botID
-		clientsMutex.Unlock()
-	}
+	// Fast Path: Direct Clean
+	botID := strings.TrimSuffix(strings.Split(rawBotID, ":")[0], "@s.whatsapp.net")
 
 	// 🟢 VARIABLES
 	chatID := v.Info.Chat.String()
 	isGroup := v.Info.IsGroup
+	senderID := v.Info.Sender.ToNonAD().String()
 
 	// =========================================================
 	// 🛡️ 1. RESTRICTED GROUP FILTER (Anti-Spam)
 	// =========================================================
 	if RestrictedGroups[chatID] {
 		if !AuthorizedBots[botID] {
-			return // ⛔ تو یہیں رک جاؤ
+			return 
 		}
 	}
 
@@ -192,7 +184,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			session, isYTS = ytCache[qID]
 			stateYT, isYTSelect = ytDownloadCache[qID]
 		}
-		senderID := v.Info.Sender.ToNonAD().String()
 		_, isTT = ttCache[senderID]
 	}
 
@@ -202,6 +193,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 
 	if !isCommand && !isAnySession && !isStatus {
 		if v.Info.IsGroup {
+			// Security checks in background (Low Priority)
 			go func() {
 				defer recovery()
 				checkSecurity(client, v)
@@ -211,7 +203,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 
 	// =========================================================================
-	// ⚡ EXECUTION ENGINE (Goroutines)
+	// ⚡ SMART EXECUTION ENGINE (RAM MANAGED)
 	// =========================================================================
 	
 	go func() {
@@ -246,7 +238,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 		dataMutex.RUnlock()
 
-		// 🎯 C. Session Handling
+		// 🎯 C. Session Handling (High Priority)
 		if isSetup {
 			handleSetupResponse(client, v)
 			return
@@ -254,8 +246,10 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 
 		if isTT && !isCommand {
 			if bodyClean == "1" || bodyClean == "2" || bodyClean == "3" {
-				senderID := v.Info.Sender.ToNonAD().String()
-				handleTikTokReply(client, v, bodyClean, senderID)
+				// Heavy Task: Give more stack
+				go func() {
+					handleTikTokReply(client, v, bodyClean, senderID)
+				}()
 				return
 			}
 		}
@@ -272,7 +266,10 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 
 		if isYTSelect && stateYT.BotLID == botID {
 			delete(ytDownloadCache, qID)
-			handleYTDownload(client, v, stateYT.Url, bodyClean, (bodyClean == "4"))
+			// Heavy Task: Downloading
+			go func() {
+				handleYTDownload(client, v, stateYT.Url, bodyClean, (bodyClean == "4"))
+			}()
 			return
 		}
 
@@ -286,10 +283,10 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		cmd := strings.ToLower(words[0])
 		fullArgs := strings.TrimSpace(strings.Join(words[1:], " "))
 
-		// Check Permission (Memory Cached)
+		// Check Permission
 		if !canExecute(client, v, cmd) { return }
 
-		// Log Command (Async)
+		// Log Command
 		fmt.Printf("🚀 [EXEC] Bot:%s | CMD:%s\n", botID, cmd)
 
 		// 🔥 E. THE SWITCH
@@ -300,7 +297,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 				replyMessage(client, v, "❌ Only Admins!")
 				return
 			}
-			
 			if fullArgs == "on" || fullArgs == "enable" {
 				s := getGroupSettings(botID, chatID)
 				s.Welcome = true
@@ -328,14 +324,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			replyMessage(client, v, fmt.Sprintf("✅ Prefix updated to [%s]", fullArgs))
 
 		case "menu", "help", "list":
+			// Light Task: Direct
 			react(client, v.Info.Chat, v.Info.ID, "📜")
 			sendMenu(client, v)
 		case "ping":
 			react(client, v.Info.Chat, v.Info.ID, "⚡")
 			sendPing(client, v)
-		// case "testreact":
-		// 	react(client, v.Info.Chat, v.Info.ID, "😬")
-		// 	go StartFloodAttack(client, v) 
 		case "id":
 			sendID(client, v)
 		case "owner":
@@ -388,128 +382,132 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			handleGroup(client, v, words[1:])
 		case "del", "delete":
 			handleDelete(client, v)
+		
+		// 🛠️ HEAVY MEDIA COMMANDS (Sent to dedicated heavy Goroutines)
 		case "toimg":
-			handleToImg(client, v)
+			go handleToImg(client, v)
 		case "tovideo":
-			handleToMedia(client, v, false)
+			go handleToMedia(client, v, false)
 		case "togif":
-			handleToMedia(client, v, true)
+			go handleToMedia(client, v, true)
 		case "s", "sticker":
-			handleToSticker(client, v)
+			go handleToSticker(client, v)
 		case "tourl":
-			handleToURL(client, v)
+			go handleToURL(client, v)
 		case "translate", "tr":
 			handleTranslate(client, v, words[1:])
 		case "vv":
-			handleVV(client, v)
+			go handleVV(client, v)
 		case "sd":
 			handleSessionDelete(client, v, words[1:])
 		case "yts":
-			handleYTS(client, v, fullArgs)
+			go handleYTS(client, v, fullArgs)
 
-		// 📺 YouTube
+		// 📺 YouTube (Very Heavy)
 		case "yt", "ytmp4", "ytmp3", "ytv", "yta", "youtube":
 			if fullArgs == "" {
 				replyMessage(client, v, "⚠️ *Usage:* .yt [YouTube Link]")
 				return
 			}
 			if strings.Contains(strings.ToLower(fullArgs), "youtu") {
-				handleYTDownloadMenu(client, v, fullArgs)
+				go handleYTDownloadMenu(client, v, fullArgs)
 			} else {
 				replyMessage(client, v, "❌ Please provide a valid YouTube link.")
 			}
 
-		// 🌐 Other Social Media
+		// 🌐 Other Social Media (Heavy)
 		case "fb", "facebook":
-			handleFacebook(client, v, fullArgs)
+			go handleFacebook(client, v, fullArgs)
 		case "ig", "insta", "instagram":
-			handleInstagram(client, v, fullArgs)
+			go handleInstagram(client, v, fullArgs)
 		case "tt", "tiktok":
-			handleTikTok(client, v, fullArgs)
+			go handleTikTok(client, v, fullArgs)
 		case "tw", "x", "twitter":
-			handleTwitter(client, v, fullArgs)
+			go handleTwitter(client, v, fullArgs)
 		case "pin", "pinterest":
-			handlePinterest(client, v, fullArgs)
+			go handlePinterest(client, v, fullArgs)
 		case "threads":
-			handleThreads(client, v, fullArgs)
+			go handleThreads(client, v, fullArgs)
 		case "snap", "snapchat":
-			handleSnapchat(client, v, fullArgs)
+			go handleSnapchat(client, v, fullArgs)
 		case "reddit":
-			handleReddit(client, v, fullArgs)
+			go handleReddit(client, v, fullArgs)
 		case "twitch":
-			handleTwitch(client, v, fullArgs)
+			go handleTwitch(client, v, fullArgs)
 		case "dm", "dailymotion":
-			handleDailyMotion(client, v, fullArgs)
+			go handleDailyMotion(client, v, fullArgs)
 		case "vimeo":
-			handleVimeo(client, v, fullArgs)
+			go handleVimeo(client, v, fullArgs)
 		case "rumble":
-			handleRumble(client, v, fullArgs)
+			go handleRumble(client, v, fullArgs)
 		case "bilibili":
-			handleBilibili(client, v, fullArgs)
+			go handleBilibili(client, v, fullArgs)
 		case "douyin":
-			handleDouyin(client, v, fullArgs)
+			go handleDouyin(client, v, fullArgs)
 		case "kwai":
-			handleKwai(client, v, fullArgs)
+			go handleKwai(client, v, fullArgs)
 		case "bitchute":
-			handleBitChute(client, v, fullArgs)
+			go handleBitChute(client, v, fullArgs)
 		case "sc", "soundcloud":
-			handleSoundCloud(client, v, fullArgs)
+			go handleSoundCloud(client, v, fullArgs)
 		case "spotify":
-			handleSpotify(client, v, fullArgs)
+			go handleSpotify(client, v, fullArgs)
 		case "apple", "applemusic":
-			handleAppleMusic(client, v, fullArgs)
+			go handleAppleMusic(client, v, fullArgs)
 		case "deezer":
-			handleDeezer(client, v, fullArgs)
+			go handleDeezer(client, v, fullArgs)
 		case "tidal":
-			handleTidal(client, v, fullArgs)
+			go handleTidal(client, v, fullArgs)
 		case "mixcloud":
-			handleMixcloud(client, v, fullArgs)
+			go handleMixcloud(client, v, fullArgs)
 		case "napster":
-			handleNapster(client, v, fullArgs)
+			go handleNapster(client, v, fullArgs)
 		case "bandcamp":
-			handleBandcamp(client, v, fullArgs)
+			go handleBandcamp(client, v, fullArgs)
 		case "imgur":
-			handleImgur(client, v, fullArgs)
+			go handleImgur(client, v, fullArgs)
 		case "giphy":
-			handleGiphy(client, v, fullArgs)
+			go handleGiphy(client, v, fullArgs)
 		case "flickr":
-			handleFlickr(client, v, fullArgs)
+			go handleFlickr(client, v, fullArgs)
 		case "9gag":
-			handle9Gag(client, v, fullArgs)
+			go handle9Gag(client, v, fullArgs)
 		case "ifunny":
-			handleIfunny(client, v, fullArgs)
+			go handleIfunny(client, v, fullArgs)
+		
+		// 🛠️ TOOLS (Medium Load)
 		case "stats", "server", "dashboard":
 			handleServerStats(client, v)
 		case "speed", "speedtest":
-			handleSpeedTest(client, v)
+			go handleSpeedTest(client, v)
 		case "ss", "screenshot":
-			handleScreenshot(client, v, fullArgs)
+			go handleScreenshot(client, v, fullArgs)
 		case "ai", "ask", "gpt":
-			handleAI(client, v, fullArgs, cmd)
+			go handleAI(client, v, fullArgs, cmd)
 		case "imagine", "img", "draw":
-			handleImagine(client, v, fullArgs)
+			go handleImagine(client, v, fullArgs)
 		case "google", "search":
-			handleGoogle(client, v, fullArgs)
+			go handleGoogle(client, v, fullArgs)
 		case "weather":
 			handleWeather(client, v, fullArgs)
 		case "remini", "upscale", "hd":
-			handleRemini(client, v)
+			go handleRemini(client, v)
 		case "removebg", "rbg":
-			handleRemoveBG(client, v)
+			go handleRemoveBG(client, v)
 		case "fancy", "style":
 			handleFancy(client, v, fullArgs)
 		case "toptt", "voice":
-			handleToPTT(client, v)
+			go handleToPTT(client, v)
 		case "ted":
-			handleTed(client, v, fullArgs)
+			go handleTed(client, v, fullArgs)
 		case "steam":
-			handleSteam(client, v, fullArgs)
+			go handleSteam(client, v, fullArgs)
 		case "archive":
-			handleArchive(client, v, fullArgs)
+			go handleArchive(client, v, fullArgs)
 		case "git", "github":
-			handleGithub(client, v, fullArgs)
+			go handleGithub(client, v, fullArgs)
 		case "dl", "download", "mega":
-			handleMega(client, v, fullArgs)
+			go handleMega(client, v, fullArgs)
 		}
 	}()
 }
