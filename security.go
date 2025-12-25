@@ -845,7 +845,7 @@ func handleIncoming(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	if detectAntiBug(text) {
+	if handleAntiBug(text) {
 		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 			Conversation: proto.String("🛡️ Anti-Bug: Dangerous Unicode blocked"),
 		})
