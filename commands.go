@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"os"
 	"time"
     
     "go.mau.fi/whatsmeow"
@@ -801,12 +802,12 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 			imgMsg := &waProto.Message{
 				ImageMessage: &waProto.ImageMessage{
 					Caption:       proto.String(menu),
-					Url:           proto.String(uploadResp.URL),
+					URL:           proto.String(uploadResp.URL),           // ✅ Fixed
 					DirectPath:    proto.String(uploadResp.DirectPath),
 					MediaKey:      uploadResp.MediaKey,
 					Mimetype:      proto.String("image/png"),
-					FileEncSha256: uploadResp.FileEncSHA256,
-					FileSha256:    uploadResp.FileSHA256,
+					FileEncSHA256: uploadResp.FileEncSHA256,              // ✅ Fixed
+					FileSHA256:    uploadResp.FileSHA256,                 // ✅ Fixed
 					FileLength:    proto.Uint64(uint64(len(imgData))),
 				},
 			}
@@ -817,6 +818,12 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 
 	// اگر تصویر نہیں ملی یا ایرر آیا تو صرف ٹیکسٹ بھیجیں
 	sendReplyMessage(client, v, menu)
+}
+
+func recovery() {
+	if r := recover(); r != nil {
+		fmt.Printf("⚠️ [RECOVERY] System recovered from panic: %v\n", r)
+	}
 }
 
 func sendPing(client *whatsmeow.Client, v *events.Message) {

@@ -453,7 +453,7 @@ func handleMode(client *whatsmeow.Client, v *events.Message, args []string) {
 		return
 	}
 
-	// Private chat - show all groups with their modes
+	// Private chat - Show Help
 	if !v.Info.IsGroup {
 		if len(args) < 1 {
 			msg := `╔════════════════╗
@@ -464,14 +464,14 @@ func handleMode(client *whatsmeow.Client, v *events.Message, args []string) {
 ║ 3️⃣ admin - Admin
 ║ 📝 .mode <type>
 ║ 💡 Use in group
-║    to change mode
+║    to change mode
 ╚════════════════╝`
 			replyMessage(client, v, msg)
 			return
 		}
 	}
 
-	// Group chat - change mode
+	// Group chat - Change Mode
 	if v.Info.IsGroup {
 		if len(args) < 1 {
 			msg := `╔════════════════╗
@@ -498,9 +498,13 @@ func handleMode(client *whatsmeow.Client, v *events.Message, args []string) {
 			return
 		}
 
-		s := getGroupSettings(v.Info.Chat.String())
+		// ✅ FIX: Bot ID نکال کر Settings اپڈیٹ کریں
+		rawBotID := client.Store.ID.User
+		botID := getCleanID(rawBotID)
+
+		s := getGroupSettings(botID, v.Info.Chat.String())
 		s.Mode = mode
-		saveGroupSettings(s)
+		saveGroupSettings(botID, s)
 
 		var modeDesc string
 		switch mode {
