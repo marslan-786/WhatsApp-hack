@@ -15,6 +15,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+var AntiBugEnabled bool = false
+
 // 🛡️ سیٹنگز کا ڈھانچہ (Structure)
 // اس میں تم مزید چیزیں بھی ڈال سکتے ہو جیسے AntiLink، Welcome وغیرہ
 type BotSettings struct {
