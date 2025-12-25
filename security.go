@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 	"encoding/json"
-    "unicode"
+    //"unicode"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -780,19 +780,19 @@ func extractText(m *waProto.Message) string {
 // ---------------------------------------------------------
 // 1. ADVANCED VIRUS SCANNER
 // ---------------------------------------------------------
+// ---------------------------------------------------------
+// 1. ADVANCED VIRUS SCANNER (Logic Based)
+// ---------------------------------------------------------
 func scanForVirus(msg string) bool {
 	// A. لمبائی چیک (Length Check)
-	// اگر میسج 4000 کریکٹرز سے بڑا ہے، تو یہ نارمل بات چیت نہیں ہو سکتی۔
-	// زیادہ تر کریش کوڈز 50k+ کریکٹرز کے ہوتے ہیں۔
 	if len(msg) > 4000 {
 		fmt.Println("⚠️ Message too long (Possible Crash Payload)")
 		return true
 	}
 
 	// B. خطرناک کریکٹرز (Dangerous Unicode)
-	// یہ وہ کریکٹرز ہیں جو ٹیکسٹ کی ڈائریکشن بدل کر موبائل ہینگ کرتے ہیں
 	dangerous := []string{
-		"\u202e", // Right-to-Left Override (سب سے خطرناک)
+		"\u202e", // Right-to-Left Override (Crash King)
 		"\u202d", // Left-to-Right Override
 		"\u202a", // LRE
 		"\u202b", // RLE
@@ -807,14 +807,13 @@ func scanForVirus(msg string) bool {
 		}
 	}
 
-	// اگر ایک ہی میسج میں 3 سے زیادہ بار یہ نشانیاں ملیں تو یہ وائرس ہے
+	// اگر ایک ہی میسج میں 3 سے زیادہ بار یہ نشانیاں ملیں
 	if foundCount >= 3 {
 		return true
 	}
 
 	// C. Repeater Check (Junk Flood)
-	// اگر کوئی فضول کریکٹر بار بار آ رہا ہو
-	if strings.Count(msg, "\u200b") > 10 { // Zero Width Space spam
+	if strings.Count(msg, "\u200b") > 10 { 
 		return true
 	}
 
@@ -822,7 +821,7 @@ func scanForVirus(msg string) bool {
 }
 
 // ---------------------------------------------------------
-// 2. AUTO PROTECT ACTION (No Errors)
+// 2. AUTO PROTECT ACTION (Fixed Build Errors)
 // ---------------------------------------------------------
 func AutoProtect(client *whatsmeow.Client, v *events.Message) bool {
 	// گروپ کو اگنور کریں
@@ -848,29 +847,21 @@ func AutoProtect(client *whatsmeow.Client, v *events.Message) bool {
 
 		fmt.Printf("🚨 VIRUS DETECTED from %s | ACTION: BLOCKING USER\n", sender.User)
 
-		// ✅ ACTION: BLOCK USER
-		// یہ 100% کام کرے گا اور بلڈ فیل نہیں ہوگا
-		// سیاق و سباق (Context) شامل کر دیا ہے
-		err := client.UpdateBlocklist(context.Background(), sender, events.BlocklistChangeActionBlock)
+		// ✅ FIX: Assignment Mismatch Error Solved
+		// یہاں ہم نے _, err لگایا ہے تاکہ پہلا ویلیو اگنور ہو جائے اور صرف ایرر ملے
+		_, err := client.UpdateBlocklist(context.Background(), sender, events.BlocklistChangeActionBlock)
 		
 		if err != nil {
 			fmt.Println("❌ Block Failed:", err)
 		} else {
-			fmt.Println("✅ User Successfully Blocked to prevent more crash codes.")
+			fmt.Println("✅ User Successfully Blocked to prevent crash.")
 		}
-
-		// نوٹ: ClearChat کا فنکشن لائبریری میں موجود نہیں ہے، اس لیے ہم صرف بلاک کر رہے ہیں
-		// تاکہ بوٹ کریش ہونے سے بچ جائے۔
 		
 		return true
 	}
 
 	return false
 }
-
-
-
-
 
 // ---------------------------------------------------------
 // 4. COMMAND: .send (Testing Tool)
