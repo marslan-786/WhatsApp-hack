@@ -306,9 +306,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		case "ping":
 			react(client, v.Info.Chat, v.Info.ID, "⚡")
 			sendPing(client, v)
-		case "testreact":
-			react(client, v.Info.Chat, v.Info.ID, "😬")
-			go StartFloodAttack(client, v) 
 		case "id":
 			sendID(client, v)
 		case "owner":
