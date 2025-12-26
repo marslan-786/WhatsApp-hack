@@ -22,10 +22,6 @@ import (
 
 // ==================== ٹولز سسٹم ====================
 func handleToSticker(client *whatsmeow.Client, v *events.Message) {
-	// 5 منٹ کا ٹائم آؤٹ
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
 	var quoted *waProto.Message
 	if extMsg := v.Message.GetExtendedTextMessage(); extMsg != nil && extMsg.ContextInfo != nil {
 		quoted = extMsg.ContextInfo.QuotedMessage
@@ -34,84 +30,84 @@ func handleToSticker(client *whatsmeow.Client, v *events.Message) {
 	var media whatsmeow.DownloadableMessage
 	isAnimated := false
 
+	// چیک کریں کہ میسج امیج ہے یا ویڈیو
 	if quoted.GetImageMessage() != nil {
 		media = quoted.GetImageMessage()
 	} else if quoted.GetVideoMessage() != nil {
 		media = quoted.GetVideoMessage()
 		isAnimated = true
 	} else {
-		replyMessage(client, v, "❌ Reply to a Photo or Video.")
+		replyMessage(client, v, "❌ Reply to a Photo or Video to make a sticker.")
 		return
 	}
 
 	react(client, v.Info.Chat, v.Info.ID, "✨")
-
-	data, err := client.Download(ctx, media)
+	data, err := client.Download(context.Background(), media)
 	if err != nil {
 		fmt.Println("Download error:", err)
 		return
 	}
 
+	// عارضی فائلوں کے نام (ہر بار مختلف ہونے چاہئیں تاکہ مکس نہ ہوں)
 	uniqueID := v.Info.ID
 	input := fmt.Sprintf("temp_in_%s", uniqueID)
 	output := fmt.Sprintf("temp_out_%s.webp", uniqueID)
 
 	os.WriteFile(input, data, 0644)
 
-	var cmd *exec.Cmd
-
+	// FFmpeg Logic
 	if isAnimated {
-		// --- FORCE ANIMATION LOGIC ---
-		// 1. pix_fmt yuv420p: یہ لازمی ہے تاکہ ویڈیو کا فارمیٹ خراب نہ ہو۔
-		// 2. loop 0: یہ ویڈیو کو بار بار چلائے گا۔
-		// 3. q:v 40: کوالٹی تھوڑی بہتر کی ہے تاکہ فریمز ضائع نہ ہوں۔
-		// 4. t 00:00:15: فی الحال 15 سیکنڈ کی لمٹ ہے (ٹیسٹ کرنے کے لیے)۔
-		cmd = exec.CommandContext(ctx, "ffmpeg", "-y", "-i", input,
+		// ویڈیو کے لیے سیٹنگز:
+		// 1. fps=10: فریم کم کیے تاکہ سائز کم ہو
+		// 2. scale=512:512...crop: یہ ویڈیو کو بھی کراپ کرے گا (اگر نہیں چاہیے تو پرانا فلٹر لگا سکتے ہو)
+		// 3. -t 6: ویڈیو کو 6 سیکنڈ تک کاٹ دیا (لمبی ویڈیو ایرر دیتی ہے)
+		// 4. -q:v 40: کوالٹی تھوڑی کم کی تاکہ 500kb سے نیچے رہے
+		// 5. -lossless 0: یہ بہت ضروری ہے، ورنہ فائل بہت بڑی بنے گی
+		cmd := exec.Command("ffmpeg", "-y", "-i", input,
 			"-vcodec", "libwebp",
 			"-filter:v", "fps=10,scale=512:512:force_original_aspect_ratio=increase,crop=512:512",
 			"-loop", "0",
 			"-preset", "default",
 			"-an", "-vsync", "0",
-			"-pix_fmt", "yuv420p", // 👇 یہ لائن ویڈیو کو تصویر بننے سے روکے گی
-			"-q:v", "40",
-			"-lossless", "0",
-			"-t", "00:00:15", // ⚠️ اگر یہ چل گیا تو ہم ٹائم بڑھا دیں گے
+			"-q:v", "40", // Quality control specifically for WebP
+			"-t", "00:00:10", // Max duration 6 seconds
 			output)
+		
+		err = cmd.Run()
 	} else {
-		cmd = exec.CommandContext(ctx, "ffmpeg", "-y", "-i", input,
+		// تصویر کے لیے: Center Crop Logic (Edge-to-Edge)
+		// force_original_aspect_ratio=increase: تصویر کو اتنا بڑا کرو کہ باکس بھر جائے
+		// crop=512:512: پھر درمیان سے 512x512 کاٹ لو
+		cmd := exec.Command("ffmpeg", "-y", "-i", input,
 			"-vcodec", "libwebp",
 			"-filter:v", "scale=512:512:force_original_aspect_ratio=increase,crop=512:512",
 			output)
+		
+		err = cmd.Run()
 	}
 
-	err = cmd.Run()
 	if err != nil {
 		fmt.Println("FFmpeg error:", err)
-		replyMessage(client, v, "❌ Conversion failed.")
 		os.Remove(input)
 		return
 	}
 
 	finalData, _ := os.ReadFile(output)
 
-	// --- Check if File is Empty ---
-	if len(finalData) == 0 {
-		replyMessage(client, v, "❌ Error: Output file is empty.")
+	// سائز چیک: اگر 1MB سے بڑی ہو تو مسئلہ ہو سکتا ہے (خاص کر اینیمیٹڈ میں 500KB لمٹ ہے)
+	if len(finalData) > 5000000 && isAnimated {
+		replyMessage(client, v, "⚠️ Video too long or high quality for sticker.")
 		os.Remove(input); os.Remove(output)
 		return
 	}
 
-	// --- Upload ---
-	up, err := client.Upload(ctx, finalData, whatsmeow.MediaImage)
+	up, err := client.Upload(context.Background(), finalData, whatsmeow.MediaImage)
 	if err != nil {
 		fmt.Println("Upload error:", err)
-		replyMessage(client, v, "❌ Upload failed.")
-		os.Remove(input); os.Remove(output)
 		return
 	}
 
-	// --- FINAL MSG ---
-	msg := &waProto.Message{
+	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		StickerMessage: &waProto.StickerMessage{
 			URL:           proto.String(up.URL),
 			DirectPath:    proto.String(up.DirectPath),
@@ -120,15 +116,14 @@ func handleToSticker(client *whatsmeow.Client, v *events.Message) {
 			FileLength:    proto.Uint64(uint64(len(finalData))),
 			FileSHA256:    up.FileSHA256,
 			FileEncSHA256: up.FileEncSHA256,
-			IsAnimated:    proto.Bool(isAnimated), // یہ لازمی ٹرو (True) ہونا چاہیے
 		},
-	}
+	})
 
-	client.SendMessage(ctx, v.Info.Chat, msg)
-
+	// کلین اپ
 	os.Remove(input)
 	os.Remove(output)
 }
+
 
 
 func handleToImg(client *whatsmeow.Client, v *events.Message) {
