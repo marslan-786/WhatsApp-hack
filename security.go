@@ -380,7 +380,7 @@ func onResponse(client *whatsmeow.Client, v *events.Message, choice string) {
 	delete(setupMap, senderID)
 }
 
-func StartSecuritySetup(client *whatsmeow.Client, v *events.Message, args []string, secType string) {
+func startSecuritySetup(client *whatsmeow.Client, v *events.Message, args []string, secType string) {
 	// 1️⃣ گروپ چیک
 	if !v.Info.IsGroup {
 		replyMessage(client, v, "❌ This command is for Groups only.")
@@ -388,7 +388,7 @@ func StartSecuritySetup(client *whatsmeow.Client, v *events.Message, args []stri
 	}
 
 	// 2️⃣ ایڈمن چیک (کمانڈ چلانے والا ایڈمن ہے یا نہیں)
-	if !isAdminOrOwner(client, v) {
+	if !isAdmin(client, v) {
 		replyMessage(client, v, "👮 Only Admins can use this command.")
 		return
 	}
