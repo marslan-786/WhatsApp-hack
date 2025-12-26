@@ -312,6 +312,8 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		msgWithoutPrefix := strings.TrimPrefix(bodyClean, prefix)
 		words := strings.Fields(msgWithoutPrefix)
 		if len(words) == 0 { return }
+		
+		parts := strings.Fields(msgText)
 
 		cmd := strings.ToLower(words[0])
 		args := parts[1:] 
