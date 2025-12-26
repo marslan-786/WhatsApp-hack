@@ -22,6 +22,7 @@ import (
 
 // ==================== ٹولز سسٹم ====================
 func handleToSticker(client *whatsmeow.Client, v *events.Message) {
+	// 5 منٹ کا ٹائم آؤٹ
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -37,7 +38,7 @@ func handleToSticker(client *whatsmeow.Client, v *events.Message) {
 		media = quoted.GetImageMessage()
 	} else if quoted.GetVideoMessage() != nil {
 		media = quoted.GetVideoMessage()
-		isAnimated = true // یہاں ہم نے نوٹ کر لیا کہ یہ ویڈیو ہے
+		isAnimated = true
 	} else {
 		replyMessage(client, v, "❌ Reply to a Photo or Video.")
 		return
@@ -60,26 +61,26 @@ func handleToSticker(client *whatsmeow.Client, v *events.Message) {
 	var cmd *exec.Cmd
 
 	if isAnimated {
-		// --- ANIMATED FIX ---
-		// -map_metadata -1: یہ بہت ضروری ہے، یہ فائل سے فالتو کچرا ہٹاتا ہے۔
-		// fps=10: سیف سپیڈ۔
-		// loop 0: تاکہ اسٹیکر بار بار چلے۔
+		// --- FORCE ANIMATION LOGIC ---
+		// 1. pix_fmt yuv420p: یہ لازمی ہے تاکہ ویڈیو کا فارمیٹ خراب نہ ہو۔
+		// 2. loop 0: یہ ویڈیو کو بار بار چلائے گا۔
+		// 3. q:v 40: کوالٹی تھوڑی بہتر کی ہے تاکہ فریمز ضائع نہ ہوں۔
+		// 4. t 00:00:15: فی الحال 15 سیکنڈ کی لمٹ ہے (ٹیسٹ کرنے کے لیے)۔
 		cmd = exec.CommandContext(ctx, "ffmpeg", "-y", "-i", input,
 			"-vcodec", "libwebp",
 			"-filter:v", "fps=10,scale=512:512:force_original_aspect_ratio=increase,crop=512:512",
 			"-loop", "0",
 			"-preset", "default",
 			"-an", "-vsync", "0",
-			"-map_metadata", "-1", // Cleans hidden data causing retry
-			"-q:v", "25",
+			"-pix_fmt", "yuv420p", // 👇 یہ لائن ویڈیو کو تصویر بننے سے روکے گی
+			"-q:v", "40",
 			"-lossless", "0",
-			"-t", "00:00:50", // فی الحال ٹیسٹنگ کے لیے 20 سیکنڈ رکھو، پھر بڑھا لینا
+			"-t", "00:00:15", // ⚠️ اگر یہ چل گیا تو ہم ٹائم بڑھا دیں گے
 			output)
 	} else {
 		cmd = exec.CommandContext(ctx, "ffmpeg", "-y", "-i", input,
 			"-vcodec", "libwebp",
 			"-filter:v", "scale=512:512:force_original_aspect_ratio=increase,crop=512:512",
-			"-map_metadata", "-1",
 			output)
 	}
 
@@ -93,6 +94,13 @@ func handleToSticker(client *whatsmeow.Client, v *events.Message) {
 
 	finalData, _ := os.ReadFile(output)
 
+	// --- Check if File is Empty ---
+	if len(finalData) == 0 {
+		replyMessage(client, v, "❌ Error: Output file is empty.")
+		os.Remove(input); os.Remove(output)
+		return
+	}
+
 	// --- Upload ---
 	up, err := client.Upload(ctx, finalData, whatsmeow.MediaImage)
 	if err != nil {
@@ -102,7 +110,7 @@ func handleToSticker(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	// --- THE MAIN FIX IS HERE ---
+	// --- FINAL MSG ---
 	msg := &waProto.Message{
 		StickerMessage: &waProto.StickerMessage{
 			URL:           proto.String(up.URL),
@@ -112,9 +120,7 @@ func handleToSticker(client *whatsmeow.Client, v *events.Message) {
 			FileLength:    proto.Uint64(uint64(len(finalData))),
 			FileSHA256:    up.FileSHA256,
 			FileEncSHA256: up.FileEncSHA256,
-			// 👇👇👇 یہ لائن سب سے اہم ہے 👇👇👇
-			// اگر یہ نہیں ہوگی تو ویڈیو اسٹیکر پر Retry آئے گا۔
-			IsAnimated: proto.Bool(isAnimated), 
+			IsAnimated:    proto.Bool(isAnimated), // یہ لازمی ٹرو (True) ہونا چاہیے
 		},
 	}
 
@@ -123,8 +129,6 @@ func handleToSticker(client *whatsmeow.Client, v *events.Message) {
 	os.Remove(input)
 	os.Remove(output)
 }
-
-
 
 
 func handleToImg(client *whatsmeow.Client, v *events.Message) {
