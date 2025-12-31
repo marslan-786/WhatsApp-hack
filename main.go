@@ -117,6 +117,16 @@ func main() {
 	// 3. WhatsMeow کنٹینر بنائیں
 	dbLog := waLog.Stdout("Database", "ERROR", true)
 	container = sqlstore.NewWithDB(rawDB, "postgres", dbLog)
+
+	// 🔥🔥🔥 [FIX ADDED] آٹو ٹیبل جنریشن 🔥🔥🔥
+	// یہ لائن چیک کرے گی اور اگر ٹیبل نہیں ہیں تو بنا دے گی
+	err = container.Upgrade()
+	if err != nil {
+		log.Fatalf("❌ Failed to initialize database tables: %v", err)
+	}
+	fmt.Println("✅ [DATABASE] Tables verified/created successfully!")
+	// 🔥🔥🔥 [FIX END] 🔥🔥🔥
+
 	dbContainer = container
 
 	// 4. ملٹی بوٹ سسٹم شروع کریں
@@ -154,7 +164,7 @@ func main() {
 	<-stop
 
 	fmt.Println("\n🛑 Shutting down system...")
-	
+
 	// بوٹس کو صاف طریقے سے بند کریں
 	clientsMutex.Lock()
 	for id, activeClient := range activeClients {
@@ -162,13 +172,14 @@ func main() {
 		activeClient.Disconnect()
 	}
 	clientsMutex.Unlock()
-	
+
 	// ڈیٹا بیس بند کریں
 	if rawDB != nil {
 		rawDB.Close()
 	}
 	fmt.Println("👋 Goodbye!")
 }
+
 
 // ✅ ⚡ بوٹ کنیکٹ (Same logic, slightly cleaned up)
 func ConnectNewSession(device *store.Device) {
