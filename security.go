@@ -188,19 +188,16 @@ func containsLink(text string) bool {
 }
 
 // ✅ فنکشن میں botID کا اضافہ کیا گیا ہے
+// ✅ فنکشن میں botID کا اضافہ کیا گیا ہے
 func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSettings, action, reason string, botID string) {
 
 	// ===========================
-	// 1️⃣ ADMIN SAFETY CHECK
+	// 1️⃣ ADMIN SAFETY CHECK (UPDATED: USES CACHE)
 	// ===========================
+	// یہاں ہم نے پرانا بھاری لوپ ہٹا کر آپ کا کیش والا فنکشن لگا دیا ہے
 	if s.AntilinkAdmin {
-		groupInfo, err := client.GetGroupInfo(context.Background(), v.Info.Chat)
-		if err == nil {
-			for _, p := range groupInfo.Participants {
-				if p.JID.User == v.Info.Sender.User && (p.IsAdmin || p.IsSuperAdmin) {
-					return // ایڈمن ہے تو کچھ نہ کرو
-				}
-			}
+		if isAdmin(client, v.Info.Chat, v.Info.Sender) {
+			return // ایڈمن ہے تو کچھ نہ کرو (Super Fast)
 		}
 	}
 
@@ -350,6 +347,7 @@ func takeSecurityAction(client *whatsmeow.Client, v *events.Message, s *GroupSet
 		saveGroupSettings(botID, s)
 	}
 }
+
 
 
 // مثال کے طور پر
