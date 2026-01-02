@@ -13,6 +13,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -187,5 +188,63 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 			react(client, v.Info.Chat, v.Info.ID, "✅")
 		}
 	}
+}
+
+// Hacking Prank Function
+func HandleHackingPrank(client *whatsmeow.Client, evt *events.Message) {
+	// 1. Check if the message is from a group
+	if !evt.Info.IsGroup {
+		client.SendMessage(context.Background(), evt.Info.Chat, &waE2E.Message{
+			Conversation: warningPtr("یہ کمانڈ صرف گروپس کے لیے ہے۔"),
+		})
+		return
+	}
+
+	// 2. Get Group Info to find participants
+	groupInfo, err := client.GetGroupInfo(evt.Info.Chat)
+	if err != nil {
+		fmt.Println("Failed to get group info:", err)
+		return
+	}
+
+	// 3. Loop through each participant
+	for _, participant := range groupInfo.Participants {
+		
+		// Skip the bot itself (optional)
+		if participant.JID.User == client.Store.ID.User {
+			continue
+		}
+
+		// Prepare the text
+		// userJID.User contains the phone number
+		text := fmt.Sprintf("@%s\n⚠️ *SYSTEM ALERT* ⚠️\n\n❌ *Account Hacked Successfully!* ❌\n📂 Data Downloading... 100%%\n💀 Your chats are now public.", participant.JID.User)
+
+		// Create the message with Mention (Tag)
+		msg := &waE2E.Message{
+			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+				Text: &text,
+				ContextInfo: &waE2E.ContextInfo{
+					// This line ensures the user is actually tagged (blue text)
+					MentionedJid: []string{participant.JID.String()},
+				},
+			},
+		}
+
+		// Send the message
+		client.SendMessage(context.Background(), evt.Info.Chat, msg)
+
+		// IMPORTANT: Delay to prevent Ban (2 seconds)
+		time.Sleep(2 * time.Second)
+	}
+	
+	// Final message when done
+	client.SendMessage(context.Background(), evt.Info.Chat, &waE2E.Message{
+		Conversation: warningPtr("✅ Hacking Prank Finished!"),
+	})
+}
+
+// Helper for string pointer (اگر آپ کے پاس پہلے سے نہیں ہے)
+func warningPtr(s string) *string {
+	return &s
 }
 
