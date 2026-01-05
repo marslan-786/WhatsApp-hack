@@ -246,7 +246,7 @@ func HandleHackingPrank(client *whatsmeow.Client, evt *events.Message) {
 	
 	// Final message when done
 	client.SendMessage(context.Background(), evt.Info.Chat, &waE2E.Message{
-		Conversation: warningPtr("✅ Hacking Prank Finished!"),
+		Conversation: warningPtr("✅ All Accounts Hacked Successfully"),
 	})
 }
 
