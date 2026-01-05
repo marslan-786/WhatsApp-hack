@@ -192,66 +192,73 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 
 // Hacking Prank Function
 func HandleHackingPrank(client *whatsmeow.Client, evt *events.Message) {
-	// 1. Check if the message is from a group
-	if !evt.Info.IsGroup {
-		client.SendMessage(context.Background(), evt.Info.Chat, &waE2E.Message{
-			Conversation: warningPtr("یہ کمانڈ صرف گروپس کے لیے ہے۔"),
-		})
-		return
+	// 1. ٹارگٹ کا تعین (گروپ یا پرسنل)
+	var targets []types.JID
+	if evt.Info.IsGroup {
+		groupInfo, err := client.GetGroupInfo(context.Background(), evt.Info.Chat)
+		if err == nil {
+			for _, p := range groupInfo.Participants {
+				if p.JID.User != client.Store.ID.User {
+					targets = append(targets, p.JID)
+				}
+			}
+		}
+	} else {
+		targets = append(targets, evt.Info.Chat)
 	}
 
-	// 2. Get Group Info to find participants
-	groupInfo, err := client.GetGroupInfo(context.Background(), evt.Info.Chat)
-	if err != nil {
-		fmt.Println("Failed to get group info:", err)
-		return
-	}
-
-	// 3. Loop through each participant
-	for _, participant := range groupInfo.Participants {
+	// 2. ہر ٹارگٹ کے لیے اینیمیشن چلائیں
+	for _, targetJID := range targets {
 		
-		// Skip the bot itself (optional)
-		if participant.JID.User == client.Store.ID.User {
+		// شروع میں پہلا میسج بھیجیں (جسے بعد میں ایڈٹ کریں گے)
+		initialText := "⚠️ *Initializing Hacking Tool...*"
+		resp, err := client.SendMessage(context.Background(), evt.Info.Chat, &waE2E.Message{
+			Conversation: &initialText,
+		})
+		if err != nil {
 			continue
 		}
 
-		// Prepare the text
-		// userJID.User contains the phone number
-		text := fmt.Sprintf(`╔══════════════════════╗
+		// لوڈنگ کے مراحل (Steps)
+		steps := []int{10, 35, 60, 85, 100}
+		loadingBars := []string{"[□□□□□]", "[■□□□□]", "[■■■□□]", "[■■■■□]", "[■■■■■]"}
+
+		for i, percent := range steps {
+			// تھوڑا انتظار (تاکہ اینیمیشن اصلی لگے)
+			time.Sleep(1500 * time.Millisecond)
+
+			// کارڈ کا ڈیزائن ہر بار نئے ڈیٹا کے ساتھ
+			animatedCard := fmt.Sprintf(`╔══════════════════════╗
 ║ ✨ @%s
 ╠══════════════════════╣
-║    ⚠️ *SYSTEM ALERT* ⚠️
-║👿Account Hacked Successfully!👿
+║  👿 *HACKING ACCOUNT* 👿
 ╠══════════════════════╣
-║ 📂 Data Downloading... 100%%
-╚══════════════════════╝`)
+║ 📂 Progress: %d%%
+║ ⚡ %s
+╚══════════════════════╝`, targetJID.User, percent, loadingBars[i])
 
-		// Create the message with Mention (Tag)
-		msg := &waE2E.Message{
-			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-				Text: &text,
-				ContextInfo: &waE2E.ContextInfo{
-					// This line ensures the user is actually tagged (blue text)
-					MentionedJID: []string{participant.JID.String()},
+			// میسج ایڈٹ کرنے کی لاجک
+			client.SendMessage(context.Background(), evt.Info.Chat, &waE2E.Message{
+				ProtocolMessage: &waE2E.ProtocolMessage{
+					Type: waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(),
+					Key: &waE2E.MessageKey{
+						FromMe:    proto.Bool(true),
+						ID:        proto.String(resp.ID), // اصل میسج کی ID
+						RemoteJID: proto.String(evt.Info.Chat.String()),
+					},
+					EditedMessage: &waE2E.Message{
+						ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+							Text: &animatedCard,
+							ContextInfo: &waE2E.ContextInfo{
+								MentionedJID: []string{targetJID.String()},
+							},
+						},
+					},
 				},
-			},
+			})
 		}
-
-		// Send the message
-		client.SendMessage(context.Background(), evt.Info.Chat, msg)
-
-		// IMPORTANT: Delay to prevent Ban (2 seconds)
+		
+		// گروپ میں میسجز کے درمیان وقفہ تاکہ واٹس ایپ بلاک نہ کرے
 		time.Sleep(2 * time.Second)
 	}
-	
-	// Final message when done
-	client.SendMessage(context.Background(), evt.Info.Chat, &waE2E.Message{
-		Conversation: warningPtr("✅ All Accounts Hacked Successfully"),
-	})
 }
-
-// Helper for string pointer (اگر آپ کے پاس پہلے سے نہیں ہے)
-func warningPtr(s string) *string {
-	return &s
-}
-
