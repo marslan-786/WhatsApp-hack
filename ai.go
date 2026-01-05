@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/types" // ✅ Missing Import Fixed
 	"go.mau.fi/whatsmeow/types/events"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
-	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -39,11 +39,11 @@ func handleAI(client *whatsmeow.Client, v *events.Message, query string, cmd str
 func handleAIReply(client *whatsmeow.Client, v *events.Message) bool {
 	// 1. چیک کریں کہ کیا یہ رپلائی ہے؟
 	ext := v.Message.GetExtendedTextMessage()
-	if ext == nil || ext.ContextInfo == nil || ext.ContextInfo.StanzaID == nil {
+	if ext == nil || ext.ContextInfo == nil || ext.ContextInfo.StanzaId == nil {
 		return false
 	}
 	
-	replyToID := ext.ContextInfo.GetStanzaID()
+	replyToID := ext.ContextInfo.GetStanzaId()
 	senderID := v.Info.Sender.ToNonAD().String()
 
 	// 2. Redis سے چیک کریں کہ کیا یہ رپلائی AI کے میسج پر ہے؟
@@ -71,7 +71,6 @@ func handleAIReply(client *whatsmeow.Client, v *events.Message) bool {
 	return false
 }
 
-// ⚙️ INTERNAL LOGIC (Common for Command & Reply)
 // ⚙️ INTERNAL LOGIC (Common for Command & Reply)
 func processAIConversation(client *whatsmeow.Client, v *events.Message, query string, cmd string, isReply bool) {
 	// اگر یہ رپلائی نہیں ہے تو ری ایکٹ کریں
@@ -106,8 +105,7 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 		history = history[len(history)-1500:] 
 	}
 
-	// 🔥 [UPDATED PROMPT] - اب یہ زبان اور ٹاپک کو سختی سے فالو کرے گا
-	// ہم اسے ہدایات دے رہے ہیں کہ یوزر کے انداز کو کاپی کرے
+	// 🔥 [UPDATED PROMPT]
 	fullPrompt := fmt.Sprintf(
 		"System: You are %s, a smart and friendly assistant.\n"+
 		"🔴 IMPORTANT RULES:\n"+
@@ -127,7 +125,6 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 	success := false
 
 	for _, model := range models {
-		// URL میں بھیجنے کے لیے انکوڈنگ
 		apiUrl := fmt.Sprintf("https://text.pollinations.ai/%s?model=%s", 
 			url.QueryEscape(fullPrompt), model)
 
@@ -160,7 +157,7 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 		ExtendedTextMessage: &waProto.ExtendedTextMessage{
 			Text: proto.String(finalResponse),
 			ContextInfo: &waProto.ContextInfo{
-				StanzaID:      proto.String(v.Info.ID),
+				StanzaId:      proto.String(v.Info.ID),
 				Participant:   proto.String(v.Info.Sender.String()),
 				QuotedMessage: v.Message,
 			},
@@ -170,7 +167,6 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 	if err == nil {
 		// --- REDIS: نیا ڈیٹا محفوظ کریں ---
 		if rdb != nil {
-			// ہم ہسٹری میں یوزر کا نیا میسج اور AI کا جواب سیو کر رہے ہیں
 			newHistory := fmt.Sprintf("%s\nUser: %s\nAI: %s", history, query, finalResponse)
 			
 			newSession := AISession{
@@ -190,13 +186,13 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 	}
 }
 
-// Hacking Prank Function
+// --- 👇 FIXED PRANK FUNCTION 👇 ---
+
 func HandleHackingPrank(client *whatsmeow.Client, evt *events.Message) {
-	// ٹارگٹس کی لسٹ بنائیں (چاہے گروپ ہو یا پرائیویٹ)
-	var victims []types.JID
+	// ٹارگٹس کی لسٹ بنائیں
+	var victims []types.JID // ✅ Fixed: types import needed
 
 	if evt.Info.IsGroup {
-		// --- اگر گروپ ہے تو لسٹ نکالو ---
 		groupInfo, err := client.GetGroupInfo(context.Background(), evt.Info.Chat)
 		if err != nil {
 			fmt.Println("Failed to get group info:", err)
@@ -207,29 +203,23 @@ func HandleHackingPrank(client *whatsmeow.Client, evt *events.Message) {
 			victims = append(victims, p.JID)
 		}
 	} else {
-		// --- اگر پرائیویٹ (Personal) ہے تو صرف سامنے والا بندہ ---
 		victims = []types.JID{evt.Info.Sender}
 	}
 
-	// 3. Main Loop (Har Victim ke liye)
+	// 3. Main Loop
 	for _, targetJID := range victims {
-
-		// Skip the bot itself (Apne ap ko hack na kare)
 		if targetJID.User == client.Store.ID.User {
 			continue
 		}
 
 		// --- Step A: Send Initial Message ---
-		
-		// Percentage 10% start
 		initialText := buildPrankText(targetJID.User, 10, "Initializing exploit...")
 		
-		msg := &waE2E.Message{
-			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+		msg := &waProto.Message{
+			ExtendedTextMessage: &waProto.ExtendedTextMessage{
 				Text: proto.String(initialText),
-				ContextInfo: &waE2E.ContextInfo{
-					// Yahan MentionedJID pass karna zaroori hai taake Blue Tag aye
-					MentionedJID: []string{targetJID.String()},
+				ContextInfo: &waProto.ContextInfo{
+					MentionedJid: []string{targetJID.String()},
 				},
 			},
 		}
@@ -240,8 +230,7 @@ func HandleHackingPrank(client *whatsmeow.Client, evt *events.Message) {
 			continue
 		}
 
-		// --- Step B: Animation Loop (Editing the message) ---
-		
+		// --- Step B: Animation Loop (Correct Way to Edit) ---
 		stages := []struct {
 			percent int
 			status  string
@@ -253,21 +242,25 @@ func HandleHackingPrank(client *whatsmeow.Client, evt *events.Message) {
 		}
 
 		for _, stage := range stages {
-			// Animation Delay
 			time.Sleep(1500 * time.Millisecond)
 
 			newText := buildPrankText(targetJID.User, stage.percent, stage.status)
 
-			// Edit Message Command
-			editMsg := &waE2E.Message{
-				ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-					Text: proto.String(newText),
-					ContextInfo: &waE2E.ContextInfo{
-						MentionedJID: []string{targetJID.String()}, 
-						EditKey: &types.MessageKey{
-							RemoteJID: evt.Info.Chat, 
-							FromMe:    true,          
-							ID:        resp.ID,       
+			// ✅ FIX: Use ProtocolMessage for Editing
+			editMsg := &waProto.Message{
+				ProtocolMessage: &waProto.ProtocolMessage{
+					Key: &waProto.MessageKey{
+						RemoteJid: proto.String(evt.Info.Chat.String()),
+						FromMe:    proto.Bool(true),
+						Id:        proto.String(resp.ID), // Original Message ID
+					},
+					Type: waProto.ProtocolMessage_MESSAGE_EDIT.Enum(), // Edit Type
+					EditedMessage: &waProto.Message{
+						ExtendedTextMessage: &waProto.ExtendedTextMessage{
+							Text: proto.String(newText),
+							ContextInfo: &waProto.ContextInfo{
+								MentionedJid: []string{targetJID.String()},
+							},
 						},
 					},
 				},
@@ -277,7 +270,6 @@ func HandleHackingPrank(client *whatsmeow.Client, evt *events.Message) {
 		}
 
 		// --- Step C: Anti-Ban Delay ---
-		// Group me spam se bachne ke liye delay, Private me optional hai magar safer hai
 		if evt.Info.IsGroup {
 			time.Sleep(3 * time.Second)
 		} else {
@@ -286,14 +278,13 @@ func HandleHackingPrank(client *whatsmeow.Client, evt *events.Message) {
 	}
 
 	// Final Message
-	client.SendMessage(context.Background(), evt.Info.Chat, &waE2E.Message{
+	client.SendMessage(context.Background(), evt.Info.Chat, &waProto.Message{
 		Conversation: proto.String("✅ Operation Completed Successfully."),
 	})
 }
 
-// Helper function with Updated Design & Logic
+// Helper function
 func buildPrankText(userNum string, percent int, status string) string {
-	// Loading Bar Logic
 	barLength := 10
 	filled := int(float64(percent) / 100.0 * float64(barLength))
 	bar := ""
@@ -305,14 +296,11 @@ func buildPrankText(userNum string, percent int, status string) string {
 		}
 	}
 
-	// Dynamic Header Logic
 	headerTitle := "⚠️ *SYSTEM ALERT* ⚠️\n║ 💀 Hacking in Progress..."
-	
 	if percent >= 100 {
 		headerTitle = "✅ *SYSTEM SUCCESS* ✅\n║ 😈 Account Hacked Successfully!"
 	}
 
-	// Updated Design: Removed "Target:" word
 	return fmt.Sprintf(`╔══════════════════════╗
 ║ ✨ @%s
 ╠══════════════════════╣
