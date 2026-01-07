@@ -27,26 +27,27 @@ func HandleButtonCommands(client *whatsmeow.Client, evt *events.Message) {
 
 	switch cmd {
 	case ".btn 1":
-		fmt.Println("🚀 Attempting to send Copy Button...")
+		fmt.Println("🚀 sending Copy Button...")
 		params := map[string]string{
 			"display_text": "👉 Copy Code",
 			"copy_code":    "IMPOSSIBLE-2026",
 			"id":           "btn_copy_123",
 		}
-		sendNativeFlow(client, evt, "🔥 *Copy Button Debug*", "نیچے بٹن دبا کر کوڈ کاپی کریں۔", "cta_copy", params)
+		// 🔴 FIX: Using 'cta_copy' (Standard) but ensuring strict structure
+		sendNativeFlow(client, evt, "🔥 *Copy Code*", "نیچے بٹن دبا کر کوڈ کاپی کریں۔", "cta_copy", params)
 
 	case ".btn 2":
-		fmt.Println("🚀 Attempting to send URL Button...")
+		fmt.Println("🚀 sending URL Button...")
 		params := map[string]string{
 			"display_text": "🌐 Open Google",
 			"url":          "https://google.com",
 			"merchant_url": "https://google.com",
 			"id":           "btn_url_456",
 		}
-		sendNativeFlow(client, evt, "🌍 *URL Button Debug*", "ہماری ویب سائٹ وزٹ کریں۔", "cta_url", params)
+		sendNativeFlow(client, evt, "🌍 *URL Access*", "ہماری ویب سائٹ وزٹ کریں۔", "cta_url", params)
 
 	case ".btn 3":
-		fmt.Println("🚀 Attempting to send List Menu...")
+		fmt.Println("🚀 sending List Menu...")
 		listParams := map[string]interface{}{
 			"title": "✨ Select Option",
 			"sections": []map[string]interface{}{
@@ -59,17 +60,17 @@ func HandleButtonCommands(client *whatsmeow.Client, evt *events.Message) {
 				},
 			},
 		}
-		sendNativeFlow(client, evt, "📂 *List Menu Debug*", "نیچے مینیو کھولیں۔", "single_select", listParams)
+		sendNativeFlow(client, evt, "📂 *Main Menu*", "نیچے مینیو کھولیں۔", "single_select", listParams)
 	}
 }
 
 // ---------------------------------------------------------
-// 👇 HELPER FUNCTION (FIXED + FULL LOGGING)
+// 👇 HELPER FUNCTION (WITH RENDERING FIXES)
 // ---------------------------------------------------------
 
 func sendNativeFlow(client *whatsmeow.Client, evt *events.Message, title string, body string, btnName string, params interface{}) {
 	
-	// 1. JSON Logging
+	// 1. JSON Marshal
 	jsonBytes, err := json.Marshal(params)
 	if err != nil {
 		fmt.Printf("❌ JSON Error: %v\n", err)
@@ -85,33 +86,35 @@ func sendNativeFlow(client *whatsmeow.Client, evt *events.Message, title string,
 		},
 	}
 
-	// 3. Message Structure (With ContextInfo & FutureProof & FIX)
+	// 3. Message Structure
 	msg := &waE2E.Message{
 		ViewOnceMessage: &waE2E.FutureProofMessage{
 			Message: &waE2E.Message{
 				InteractiveMessage: &waE2E.InteractiveMessage{
+					// 🔥 HEADER IS MANDATORY FOR SOME CLIENTS
 					Header: &waE2E.InteractiveMessage_Header{
 						Title:              proto.String(title),
+						Subtitle:           proto.String("Bot Message"), // Added Subtitle
 						HasMediaAttachment: proto.Bool(false),
 					},
 					Body: &waE2E.InteractiveMessage_Body{
 						Text: proto.String(body),
 					},
 					Footer: &waE2E.InteractiveMessage_Footer{
-						Text: proto.String("🤖 Impossible Bot Debugger"),
+						Text: proto.String("🤖 Impossible Bot"),
 					},
 					
-					// ✅ Wrapper with ALL mandatory fields
+					// ✅ Wrapper
 					InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
 						NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
 							Buttons:           buttons,
-							// 🛑 THE MISSING KEY FIX 🛑
-							MessageParamsJSON: proto.String("{}"), 
+							// 🛑 THE CRITICAL FIX: Empty JSON Object String
+							MessageParamsJSON: proto.String("{\"name\":\"galaxy_message\"}"), // Explicitly naming it
 							MessageVersion:    proto.Int32(3),
 						},
 					},
 
-					// 🔥 Context Info (Forcing Render)
+					// 🔥 Context Info (Reply)
 					ContextInfo: &waE2E.ContextInfo{
 						StanzaID:      proto.String(evt.Info.ID),
 						Participant:   proto.String(evt.Info.Sender.String()),
@@ -122,17 +125,11 @@ func sendNativeFlow(client *whatsmeow.Client, evt *events.Message, title string,
 		},
 	}
 
-	// 4. Send & Print Raw Response (Old Style Logging)
-	fmt.Println("📡 Sending message to WhatsApp Server...")
+	// 4. Send Message
 	resp, err := client.SendMessage(context.Background(), evt.Info.Chat, msg)
-	
 	if err != nil {
-		fmt.Printf("❌ CRITICAL ERROR: %v\n", err)
+		fmt.Printf("❌ Error sending: %v\n", err)
 	} else {
-		// 🔥 RAW RESPONSE DUMP 🔥
-		fmt.Printf("✅ SUCCESS! Server Response:\n")
-		fmt.Printf("🆔 ID: %s\n", resp.ID)
-		fmt.Printf("🕒 Timestamp: %v\n", resp.Timestamp)
-		fmt.Printf("💾 Full Dump: %+v\n", resp)
+		fmt.Printf("✅ Sent! ID: %s\n", resp.ID)
 	}
 }
