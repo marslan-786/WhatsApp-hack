@@ -104,7 +104,7 @@ func sendNativeFlow(client *whatsmeow.Client, evt *events.Message, title string,
 					InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
 						NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
 							Buttons:           buttons,
-							MessageParamsJson: proto.String("{}"), // بعض اوقات خالی JSON ضروری ہوتا ہے
+							MessageParamsJSON: proto.String("{}"), // بعض اوقات خالی JSON ضروری ہوتا ہے
 							MessageVersion:    proto.Int32(3),
 						},
 					},
