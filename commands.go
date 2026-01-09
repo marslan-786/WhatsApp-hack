@@ -804,7 +804,7 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			react(client, v.Info.Chat, v.Info.ID, "🎮")
 			handleSteam(client, v, fullArgs)
 		
-		case "archive":
+		case "archive", "movie":
 			react(client, v.Info.Chat, v.Info.ID, "🏛️")
 			handleArchive(client, v, fullArgs)
 		
