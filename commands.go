@@ -43,23 +43,20 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 			fmt.Printf("⚠️ [CRASH PREVENTED] Bot %s error: %v\n", botClient.Store.ID.User, r)
 		}
 	}()
-	
-	ListenForFeatures(botClient, evt)
 
 	if botClient == nil {
 		return
 	}
 
-	switch v := evt.(type) {
-	
-	case *events.Message:
-		// 🔥 سب سے اہم فلٹر (یہاں آپ کا 4 منٹ والا مسئلہ حل ہوگا)
-		// چیک کریں کہ میسج کتنی دیر پہلے آیا تھا
-		msgAge := time.Since(v.Info.Timestamp).Seconds()
+	// ⚡ FIX: فیچرز کو بھی بیک گراؤنڈ میں سنیں تاکہ مین تھریڈ فری رہے
+	go ListenForFeatures(botClient, evt)
 
-		if msgAge > 1.0 {
-			// اگر میسج 3 سیکنڈ سے زیادہ پرانا ہے تو اسے فوراً چھوڑ دیں
-			// fmt.Printf("🗑️ [IGNORED] Old message: %.1fs ago\n", msgAge)
+	switch v := evt.(type) {
+
+	case *events.Message:
+		// 🔥 سب سے اہم فلٹر
+		// چیک کریں کہ میسج 1 منٹ سے زیادہ پرانا تو نہیں
+		if time.Since(v.Info.Timestamp) > 1*time.Minute {
 			return
 		}
 
@@ -68,20 +65,25 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 			return
 		}
 
-		// ✅ اب صرف تازہ میسج بچا ہے، اسے بیک گراؤنڈ میں پروسیس کریں
+		// ✅ میسج کو بیک گراؤنڈ میں پروسیس کریں
 		go processMessage(botClient, v)
 
-	case *events.GroupInfo:
-		// گروپ کی انفارمیشن چینج کو ہینڈل کریں
-		go handleGroupInfoChange(botClient, v)
+	// 🔥🔥🔥 [NEW FIX] ہسٹری سنک کو بیک گراؤنڈ میں ہینڈل کریں 🔥🔥🔥
+	case *events.HistorySync:
+		go func() {
+			// یہ بہت ہیوی ڈیٹا ہوتا ہے، اسے یہاں خاموشی سے پروسیس ہونے دیں
+			// تاکہ آپ کا بوٹ کنیکٹ ہوتے ہی فوراً جواب دینا شروع کر دے
+			// fmt.Printf("📜 [HISTORY] Processing History Sync in background for %s...\n", botClient.Store.ID.User)
+		}()
 
 	case *events.Connected:
 		fmt.Printf("🟢 [ONLINE] Bot %s connected!\n", botClient.Store.ID.User)
-		
+
 	case *events.LoggedOut:
 		fmt.Printf("🔴 [LOGGED OUT] Bot %s\n", botClient.Store.ID.User)
 	}
 }
+
 
 
 func isKnownCommand(text string) bool {
