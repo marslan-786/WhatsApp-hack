@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"database/sql" // ✅ SQL پیکیج لازمی ہے
+	"database/sql" 
 	"encoding/json"
 	"fmt"
 	"log"
@@ -13,10 +13,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
+    "go.mau.fi/whatsmeow/types"
 	"github.com/gorilla/websocket"
-	_ "github.com/lib/pq" // ✅ صرف Postgres ڈرائیور رکھا ہے
-	// SQLite ڈرائیور یہاں سے مکمل ہٹا دیا گیا ہے 🗑️
+	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
