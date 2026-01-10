@@ -671,45 +671,15 @@ func handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		defer file.Close()
 		
-		imgData, _ := io.ReadAll(file)
+		// ✅ FIX: Read file but ignore variable to prevent "declared and not used" error
+		_, _ = io.ReadAll(file)
 		
-		// ✅ LATEST FIX: SetProfilePicture logic changed
-		// In latest whatsmeow, setting own profile picture is done via:
-		// bot.SetProfilePicture(jid, data) -> REMOVED/CHANGED in some versions
-		// Safe Alternative: Send IQ Stanza manually OR check if SetProfilePicture exists with params
+		// ✅ FIX: Commented out unused JID to prevent error
+		// jid := bot.Store.ID
 		
-		// Trying the most compatible method for v0.0+
-		// Note: Own JID for profile pic
-		jid := bot.Store.ID
-		
-		// 🛠️ WORKAROUND: If SetProfilePicture is missing, use SetGroupPhoto (It works for self sometimes)
-		// OR use the correct new API if available. 
-		// Since direct SetProfilePicture is erroring, it implies function signature changed or moved.
-		
-		// Let's try sending picture to Self JID using SetGroupPhoto (Common workaround)
-		// However, correct way in newer versions might be just passing JID.
-		
-		// Checking documentation: It seems `SetProfilePicture` expects JID and []byte.
-		// If compiler says "undefined", it means it's not exported or renamed.
-		// It is likely `SendAvatar` or `SetAvatar`.
-		
-		// Let's assume the library removed it and we need to use a specific way.
-		// BUT, for now, let's use a fail-safe empty response to let you compile
-		// while I give you the Exact function if you check your go.mod version.
-		
-		// For now, replacing with a Placeholder that won't crash build.
-		// Real implementation requires check on whatsmeow version.
-		
-		// 👇 THIS IS THE FIX FOR COMPILATION (Feature disabled temporarily)
-		// reason: Library mismatch. 
+		// 👇 Feature disabled temporarily due to library mismatch
 		fmt.Println("⚠️ SetProfilePicture API not found in this version. Skipping.")
 		
-		/* If you really need this, the raw XML stanza is:
-		   <iq type="set" to="s.whatsapp.net" xmlns="w:profile:picture" id="...">
-		     <picture type="image">BASE64_DATA</picture>
-		   </iq>
-		*/
-
 		w.Write([]byte(`{"status":"skipped_due_to_version_mismatch"}`))
 		return
 	}
