@@ -154,7 +154,7 @@ func main() {
 
 	// 1. Init Services
 	initRedis()
-	initHistoryDB() // ✅ MySQL Connection (Function provided below)
+	initHistoryDB()
 	loadPersistentUptime()
 	loadGlobalSettings()
 	startPersistentUptimeTracker()
@@ -214,14 +214,14 @@ func main() {
 	// ----------------------------------------------------
 	// 🌐 WEB ROUTES (Existing List HTML & Bot UI)
 	// ----------------------------------------------------
-	http.HandleFunc("/", serveHTML) // ✅ Kept as requested
+	http.HandleFunc("/", serveHTML)
 	http.HandleFunc("/pic.png", servePicture)
 	http.HandleFunc("/ws", handleWebSocket)
 
 	// Existing APIs
 	http.HandleFunc("/api/pair", handlePairAPI)
 	http.HandleFunc("/link/pair/", handlePairAPILegacy)
-	http.HandleFunc("/link/delete", handleDeleteSession) // ✅ Kept
+	http.HandleFunc("/link/delete", handleDeleteSession)
 	http.HandleFunc("/del/all", handleDelAllAPI)
 	http.HandleFunc("/del/", handleDelNumberAPI)
 
@@ -234,28 +234,103 @@ func main() {
 	http.HandleFunc("/api/avatar", handleGetAvatar)
 
 	// ----------------------------------------------------
-	// 🚀 NEW: FULL WHATSAPP CLONE APIS (Next.js Ready)
+	// 🚀 V2: FULL WHATSAPP CLONE API ROUTES (Next.js Ready)
 	// ----------------------------------------------------
-	
-	// 1. Messaging
-	http.HandleFunc("/api/v2/send/text", handleSendTextV2)       // Send Text
-	http.HandleFunc("/api/v2/send/media", handleSendMediaV2)     // Send Img/Vid/Audio/Doc/Sticker
-	http.HandleFunc("/api/v2/history", handleGetHistoryV2)       // MySQL Chat History
-	
-	// 2. Groups
-	http.HandleFunc("/api/v2/group/create", handleCreateGroup)   // Create Group
-	http.HandleFunc("/api/v2/group/info", handleGroupInfo)       // Get Group Metadata
-	http.HandleFunc("/api/v2/group/join", handleJoinGroup)       // Join via Link
-	http.HandleFunc("/api/v2/group/leave", handleLeaveGroup)     // Leave Group
-	
-	// 3. Status / Stories
-	http.HandleFunc("/api/v2/status/send", handleSendStatus)     // Upload Status
-	http.HandleFunc("/api/v2/status/list", handleGetStatuses)    // View Statuses
-	
-	// 4. Profile & Settings
-	http.HandleFunc("/api/v2/profile/update", handleUpdateProfile) // Change DP/About
-	http.HandleFunc("/api/v2/contact/info", handleContactInfo)     // Get User Info
 
+	// Health / Meta
+	http.HandleFunc("/api/v2/health", handleHealthV2)
+	http.HandleFunc("/api/v2/version", handleVersionV2)
+
+	// Auth / Session
+	http.HandleFunc("/api/v2/session/pair", handlePairV2)
+	http.HandleFunc("/api/v2/session/logout", handleLogoutV2)
+	http.HandleFunc("/api/v2/session/list", handleSessionListV2)
+	http.HandleFunc("/api/v2/session/delete", handleSessionDeleteV2)
+
+	// Bots
+	http.HandleFunc("/api/v2/bot/list", handleBotListV2)
+	http.HandleFunc("/api/v2/bot/online", handleBotOnlineV2)
+
+	// Chats
+	http.HandleFunc("/api/v2/chats/list", handleChatsListV2)       // recent chats + unread + last msg
+	http.HandleFunc("/api/v2/chats/search", handleChatsSearchV2)   // search chats/messages
+	http.HandleFunc("/api/v2/chat/open", handleChatOpenV2)         // open chat (optional tracking)
+	http.HandleFunc("/api/v2/chat/mute", handleChatMuteV2)         // mute/unmute
+	http.HandleFunc("/api/v2/chat/pin", handleChatPinV2)           // pin/unpin
+	http.HandleFunc("/api/v2/chat/archive", handleChatArchiveV2)   // archive/unarchive
+	http.HandleFunc("/api/v2/chat/clear", handleChatClearV2)       // clear local history (server-side)
+
+	// Messages (Core)
+	http.HandleFunc("/api/v2/messages/history", handleMessagesHistoryV2) // history by chat JID
+	http.HandleFunc("/api/v2/send/text", handleSendTextV2)
+	http.HandleFunc("/api/v2/send/media", handleSendMediaV2)
+	http.HandleFunc("/api/v2/message/reply", handleMessageReplyV2)
+	http.HandleFunc("/api/v2/message/forward", handleMessageForwardV2)
+	http.HandleFunc("/api/v2/message/react", handleMessageReactV2)
+	http.HandleFunc("/api/v2/message/star", handleMessageStarV2)
+	http.HandleFunc("/api/v2/message/pin", handleMessagePinV2)
+	http.HandleFunc("/api/v2/message/delete", handleMessageDeleteV2) // delete-for-me / (later) delete-for-all if supported
+	http.HandleFunc("/api/v2/message/edit", handleMessageEditV2)     // if supported
+	http.HandleFunc("/api/v2/message/report", handleMessageReportV2) // optional admin tooling
+
+	// Delivery/Read receipts (Normal flow)
+	http.HandleFunc("/api/v2/message/mark-delivered", handleMarkDeliveredV2)
+	http.HandleFunc("/api/v2/message/mark-read", handleMarkReadV2)
+
+	// Media pipeline
+	http.HandleFunc("/api/v2/media/upload", handleMediaUploadV2)       // optional pre-upload
+	http.HandleFunc("/api/v2/media/download", handleMediaDownloadV2)   // proxy/download
+	http.HandleFunc("/api/v2/media/thumbnail", handleMediaThumbV2)     // thumbs
+
+	// Contacts
+	http.HandleFunc("/api/v2/contacts/list", handleContactsListV2)
+	http.HandleFunc("/api/v2/contact/info", handleContactInfo)
+	http.HandleFunc("/api/v2/contact/block", handleContactBlockV2)
+	http.HandleFunc("/api/v2/contact/unblock", handleContactUnblockV2)
+
+	// Profile & Settings
+	http.HandleFunc("/api/v2/profile/get", handleGetProfileV2)
+	http.HandleFunc("/api/v2/profile/update", handleUpdateProfile) // DP/About
+	http.HandleFunc("/api/v2/profile/privacy", handleProfilePrivacyV2)
+	http.HandleFunc("/api/v2/settings/get", handleGetSettingsV2)
+	http.HandleFunc("/api/v2/settings/update", handleUpdateSettingsV2)
+
+	// Presence (Online/Typing/Last seen)
+	http.HandleFunc("/api/v2/presence/subscribe", handlePresenceSubscribeV2)
+	http.HandleFunc("/api/v2/presence/unsubscribe", handlePresenceUnsubscribeV2)
+	http.HandleFunc("/api/v2/presence/set", handlePresenceSetV2) // typing/recording etc.
+
+	// Groups
+	http.HandleFunc("/api/v2/groups/list", handleGroupsListV2)
+	http.HandleFunc("/api/v2/group/create", handleCreateGroup)
+	http.HandleFunc("/api/v2/group/info", handleGroupInfo)
+	http.HandleFunc("/api/v2/group/members", handleGroupMembersV2) // list members + roles
+	http.HandleFunc("/api/v2/group/member/add", handleGroupMemberAddV2)
+	http.HandleFunc("/api/v2/group/member/remove", handleGroupMemberRemoveV2)
+	http.HandleFunc("/api/v2/group/admin/promote", handleGroupPromoteV2)
+	http.HandleFunc("/api/v2/group/admin/demote", handleGroupDemoteV2)
+	http.HandleFunc("/api/v2/group/subject", handleGroupSetSubjectV2)
+	http.HandleFunc("/api/v2/group/description", handleGroupSetDescriptionV2)
+	http.HandleFunc("/api/v2/group/photo", handleGroupSetPhotoV2)
+	http.HandleFunc("/api/v2/group/join", handleJoinGroup)
+	http.HandleFunc("/api/v2/group/leave", handleLeaveGroup)
+	http.HandleFunc("/api/v2/group/invite/link", handleGroupInviteLinkV2)
+	http.HandleFunc("/api/v2/group/invite/revoke", handleGroupInviteRevokeV2)
+
+	// Status / Stories
+	http.HandleFunc("/api/v2/status/send", handleSendStatus)
+	http.HandleFunc("/api/v2/status/list", handleGetStatuses)
+	http.HandleFunc("/api/v2/status/delete", handleStatusDeleteV2)
+	http.HandleFunc("/api/v2/status/viewers", handleStatusViewersV2)
+	http.HandleFunc("/api/v2/status/mute", handleStatusMuteV2)
+
+	// Webhook (optional for integrations)
+	http.HandleFunc("/api/v2/webhook/register", handleWebhookRegisterV2)
+	http.HandleFunc("/api/v2/webhook/test", handleWebhookTestV2)
+
+	// ----------------------------------------------------
+	// Server Boot
+	// ----------------------------------------------------
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
