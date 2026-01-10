@@ -540,7 +540,8 @@ type MediaItem struct {
 }
 // 🔥 HELPER: Save Message to Mongo (Fixed Context)
 // Save Message to Mongo (optimized: text in messages, media in mediaCollection)
-func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waProto.Message, isFromMe bool, ts uint64) {
+// ⚡ UPDATED: Save Message to Mongo (Blocks Channels + Fixes LIDs)
+func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, senderJID types.JID, msg *waProto.Message, isFromMe bool, ts uint64) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("⚠️ Recovered from mongo save: %v\n", r)
@@ -551,64 +552,94 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 		return
 	}
 
-	// ✅ canonical to stop LID split chats
+	// =========================================================
+	// 🚫 BLOCKING ZONE (Channels & Junk)
+	// =========================================================
+	
+	// 1. Block Newsletters / Channels
+	// اگر آئی ڈی 120 سے شروع ہو رہی ہے یا اس میں newsletter ہے تو فورا واپس جائیں
+	if strings.HasPrefix(chatID, "120") || strings.Contains(chatID, "@newsletter") {
+		return 
+	}
+
+	// =========================================================
+	// 🛠️ 1. LID FIXER (Chat ID)
+	// =========================================================
+	if !strings.Contains(chatID, "@g.us") {
+		// Redis سے اصلی نمبر نکالیں
+		if realChat, found := GetJIDFromLID(chatID); found {
+			chatID = realChat.String()
+		}
+	}
+	// فارمیٹ سیدھا کریں
 	chatID = canonicalChatID(chatID)
 
+	// =========================================================
+	// 🛠️ 2. SENDER FIXER (Who Sent It?)
+	// =========================================================
+	realSenderJID := senderJID
+	if isFromMe {
+		if myReal, found := GetJIDFromLID(client.Store.ID.User); found {
+			realSenderJID = myReal
+		}
+	} else {
+		if userReal, found := GetJIDFromLID(senderJID.String()); found {
+			realSenderJID = userReal
+		}
+	}
+	
+	senderStr := realSenderJID.ToNonAD().String()
+
+	// =========================================================
+	// 🛠️ 3. NAME LOOKUP
+	// =========================================================
 	var msgType, content, senderName string
 	var quotedMsg, quotedSender string
 	var isSticker bool
 
 	timestamp := time.Unix(int64(ts), 0)
 	isGroup := strings.Contains(chatID, "@g.us")
-	isChannel := strings.Contains(chatID, "@newsletter")
+	isChannel := false // اب یہ ہمیشہ false رہے گا کیونکہ ہم نے اوپر ہی روک دیا ہے
 
-	jid, _ := types.ParseJID(chatID)
-
-	// name lookup
-	if isGroup {
-		if info, err := client.GetGroupInfo(context.Background(), jid); err == nil {
-			senderName = info.Name
-		}
+	// Name Check
+	if contact, err := client.Store.Contacts.GetContact(realSenderJID); err == nil && contact.Found {
+		senderName = contact.FullName
+		if senderName == "" { senderName = contact.PushName }
 	}
 	if senderName == "" {
-		if contact, err := client.Store.Contacts.GetContact(context.Background(), jid); err == nil && contact.Found {
-			senderName = contact.FullName
-			if senderName == "" {
-				senderName = contact.PushName
-			}
-		}
-	}
-	if senderName == "" {
-		senderName = strings.Split(chatID, "@")[0]
+		senderName = strings.Split(senderStr, "@")[0] 
 	}
 
-	// replies
+	// =========================================================
+	// 🛠️ 4. CONTENT PROCESSING
+	// =========================================================
+
 	var contextInfo *waProto.ContextInfo
 	if msg.ExtendedTextMessage != nil {
 		contextInfo = msg.ExtendedTextMessage.ContextInfo
-	}
-	if msg.ImageMessage != nil {
+	} else if msg.ImageMessage != nil {
 		contextInfo = msg.ImageMessage.ContextInfo
-	}
-	if msg.VideoMessage != nil {
+	} else if msg.VideoMessage != nil {
 		contextInfo = msg.VideoMessage.ContextInfo
-	}
-	if msg.AudioMessage != nil {
+	} else if msg.AudioMessage != nil {
 		contextInfo = msg.AudioMessage.ContextInfo
-	}
-	if msg.StickerMessage != nil {
+	} else if msg.StickerMessage != nil {
 		contextInfo = msg.StickerMessage.ContextInfo
-	}
-	if msg.DocumentMessage != nil {
+	} else if msg.DocumentMessage != nil {
 		contextInfo = msg.DocumentMessage.ContextInfo
 	}
 
 	if contextInfo != nil && contextInfo.QuotedMessage != nil {
 		if contextInfo.Participant != nil {
-			quotedSender = canonicalChatID(*contextInfo.Participant)
+			q := *contextInfo.Participant
+			if qReal, ok := GetJIDFromLID(q); ok { q = qReal.String() }
+			quotedSender = canonicalChatID(q)
 		} else if contextInfo.RemoteJID != nil {
-			quotedSender = canonicalChatID(*contextInfo.RemoteJID)
+			q := *contextInfo.RemoteJID
+			if qReal, ok := GetJIDFromLID(q); ok { q = qReal.String() }
+			quotedSender = canonicalChatID(q)
 		}
+
 		if contextInfo.QuotedMessage.Conversation != nil {
 			quotedMsg = *contextInfo.QuotedMessage.Conversation
 		} else if contextInfo.QuotedMessage.ExtendedTextMessage != nil && contextInfo.QuotedMessage.ExtendedTextMessage.Text != nil {
@@ -618,17 +649,16 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 		}
 	}
 
-	// message id
+	// Message ID
 	messageID := ""
 	if contextInfo != nil && contextInfo.StanzaID != nil {
 		messageID = *contextInfo.StanzaID
 	}
-	// if no stanza id in context, generate stable-ish id
 	if messageID == "" {
 		messageID = fmt.Sprintf("%s_%d", strings.Split(chatID, "@")[0], time.Now().UnixNano())
 	}
 
-	// default: text
+	// Media Handling
 	if txt := getText(msg); txt != "" {
 		msgType = "text"
 		content = txt
@@ -637,9 +667,7 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 		content = "MEDIA_WAITING"
 		go saveMediaDoc(botID, chatID, messageID, "image", "image/jpeg", func() (string, error) {
 			data, err := client.Download(context.Background(), msg.ImageMessage)
-			if err != nil {
-				return "", err
-			}
+			if err != nil { return "", err }
 			encoded := base64.StdEncoding.EncodeToString(data)
 			return "data:image/jpeg;base64," + encoded, nil
 		})
@@ -649,9 +677,7 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 		content = "MEDIA_WAITING"
 		go saveMediaDoc(botID, chatID, messageID, "image", "image/webp", func() (string, error) {
 			data, err := client.Download(context.Background(), msg.StickerMessage)
-			if err != nil {
-				return "", err
-			}
+			if err != nil { return "", err }
 			encoded := base64.StdEncoding.EncodeToString(data)
 			return "data:image/webp;base64," + encoded, nil
 		})
@@ -660,14 +686,9 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 		content = "MEDIA_WAITING"
 		go saveMediaDoc(botID, chatID, messageID, "video", "video/mp4", func() (string, error) {
 			data, err := client.Download(context.Background(), msg.VideoMessage)
-			if err != nil {
-				return "", err
-			}
-			// keep your catbox uploader
+			if err != nil { return "", err }
 			url, err := UploadToCatbox(data, "video.mp4")
-			if err != nil {
-				return "", err
-			}
+			if err != nil { return "", err }
 			return url, nil
 		})
 	} else if msg.AudioMessage != nil {
@@ -675,18 +696,13 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 		content = "MEDIA_WAITING"
 		go saveMediaDoc(botID, chatID, messageID, "audio", "audio/ogg", func() (string, error) {
 			data, err := client.Download(context.Background(), msg.AudioMessage)
-			if err != nil {
-				return "", err
-			}
-			// prefer base64 for smaller files
+			if err != nil { return "", err }
 			if len(data) <= 10*1024*1024 {
 				encoded := base64.StdEncoding.EncodeToString(data)
 				return "data:audio/ogg;base64," + encoded, nil
 			}
 			url, err := UploadToCatbox(data, "audio.ogg")
-			if err != nil {
-				return "", err
-			}
+			if err != nil { return "", err }
 			return url, nil
 		})
 	} else if msg.DocumentMessage != nil {
@@ -694,17 +710,11 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 		content = "MEDIA_WAITING"
 		go saveMediaDoc(botID, chatID, messageID, "file", "application/octet-stream", func() (string, error) {
 			data, err := client.Download(context.Background(), msg.DocumentMessage)
-			if err != nil {
-				return "", err
-			}
+			if err != nil { return "", err }
 			fname := msg.DocumentMessage.GetFileName()
-			if fname == "" {
-				fname = "file.bin"
-			}
+			if fname == "" { fname = "file.bin" }
 			url, err := UploadToCatbox(data, fname)
-			if err != nil {
-				return "", err
-			}
+			if err != nil { return "", err }
 			return url, nil
 		})
 	} else {
@@ -714,7 +724,7 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 	doc := ChatMessage{
 		BotID:        botID,
 		ChatID:       chatID,
-		Sender:       chatID,
+		Sender:       senderStr,
 		SenderName:   senderName,
 		MessageID:    messageID,
 		Type:         msgType,
@@ -730,10 +740,10 @@ func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waP
 
 	_, err := chatHistoryCollection.InsertOne(context.Background(), doc)
 	if err != nil {
-		// ignore duplicates
-		// fmt.Printf("❌ Mongo Save Error: %v\n", err)
+		// ignore
 	}
 }
+
 
 // helper: save media in separate collection
 func saveMediaDoc(botID, chatID, messageID, typ, mime string, loader func() (string, error)) {

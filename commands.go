@@ -57,15 +57,41 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 		// Filter old messages for COMMANDS only (keep history saving for all)
 		isRecent := time.Since(v.Info.Timestamp) < 1*time.Minute
 
+		// ❌ پرانا کوڈ یہاں اسٹیٹس روک رہا تھا، ہم نے اسے نیچے بھیج دیا ہے تاکہ DB میں سیو ہو سکے
+
+		// =========================================================
+		// 💾 REDIS LID MAPPER (LID -> REAL JID)
+		// =========================================================
+		go func() {
+			realJID := v.Info.Sender 
+			
+			contact, err := botClient.Store.Contacts.GetContact(realJID)
+			
+			if err == nil && contact.Found && !contact.LID.IsEmpty() {
+				lidUser := contact.LID.User 
+				redisKey := "lid_map:" + lidUser
+
+				exists, errRDS := rdb.Exists(context.Background(), redisKey).Result()
+				
+				if errRDS == nil && exists == 0 {
+					// Link LID to Real JID
+					rdb.Set(context.Background(), redisKey, realJID.String(), 0)
+				}
+			}
+		}()
+		// =========================================================
+
+		// ✅ Save Message to Mongo (Background)
+		// نوٹ: اب ہم یہاں 'v.Info.Sender' بھیج رہے ہیں تاکہ LID فکس ہو سکے
+		go func() {
+			botID := getCleanID(botClient.Store.ID.User)
+			saveMessageToMongo(botClient, botID, v.Info.Chat.String(), v.Info.Sender, v.Message, v.Info.IsFromMe, uint64(v.Info.Timestamp.Unix()))
+		}()
+
+		// 🛑 STOP HERE FOR STATUS (Status Save ہو گیا، اب کمانڈ نہیں چلنی چاہیے)
 		if v.Info.Chat.String() == "status@broadcast" {
 			return
 		}
-
-		// ✅ Save Message to Mongo (Background)
-		go func() {
-			botID := getCleanID(botClient.Store.ID.User)
-			saveMessageToMongo(botClient, botID, v.Info.Chat.String(), v.Message, v.Info.IsFromMe, uint64(v.Info.Timestamp.Unix()))
-		}()
 
 		// Process Commands
 		if isRecent {
@@ -80,13 +106,12 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 
 			botID := getCleanID(botClient.Store.ID.User)
 			for _, conv := range v.Data.Conversations {
-				// ✅ FIX HERE: conv.ID Pointer ہے، اسے String میں تبدیل کیا
+				// ✅ FIX: conv.ID Pointer -> String
 				chatID := ""
 				if conv.ID != nil {
 					chatID = *conv.ID
 				}
 
-				// اگر ID نہیں ملی تو اس لوپ کو چھوڑ دیں
 				if chatID == "" {
 					continue
 				}
@@ -99,7 +124,19 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 
 					isFromMe := false
 					if webMsg.Key != nil && webMsg.Key.FromMe != nil {
-						isFromMe = *webMsg.Key.FromMe // Dereference bool pointer
+						isFromMe = *webMsg.Key.FromMe
+					}
+
+					// 👇 تاریخ (History) سے Sender نکالنا ضروری ہے LID فکس کے لیے
+					senderJID := types.EmptyJID
+					if webMsg.Key != nil && webMsg.Key.Participant != nil {
+						senderJID, _ = types.ParseJID(*webMsg.Key.Participant)
+					} else if webMsg.Key != nil && webMsg.Key.RemoteJID != nil {
+						senderJID, _ = types.ParseJID(*webMsg.Key.RemoteJID)
+					}
+					// اگر میسج ہمارا اپنا ہے
+					if isFromMe {
+						senderJID = botClient.Store.ID
 					}
 
 					ts := uint64(0)
@@ -107,8 +144,8 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 						ts = *webMsg.MessageTimestamp
 					}
 
-					// ✅ اب chatID سٹرنگ ہے، یہ فنکشن اب ایرر نہیں دے گا
-					saveMessageToMongo(botClient, botID, chatID, webMsg.Message, isFromMe, ts)
+					// ✅ Save Call (With Sender JID)
+					saveMessageToMongo(botClient, botID, chatID, senderJID, webMsg.Message, isFromMe, ts)
 				}
 			}
 		}()
@@ -119,6 +156,36 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 		}
 	}
 }
+
+
+// 🔍 Helper: LID دے کر Real JID نکالنے کا فنکشن
+func GetJIDFromLID(rawLID string) (types.JID, bool) {
+	// 1. ان پٹ کو صاف کریں (اگر 123@lid ہے تو صرف 123 بچے گا)
+	// یہ لائن @ سے پہلے والا حصہ اٹھا لیتی ہے
+	cleanLID := strings.Split(rawLID, "@")[0]
+	cleanLID = strings.Split(cleanLID, ":")[0] // احتیاطاً ڈیوائس آئی ڈی بھی ہٹا دیں
+	cleanLID = strings.TrimSpace(cleanLID)
+
+	// 2. Redis Key بنائیں
+	key := "lid_map:" + cleanLID
+	
+	// 3. Redis سے پوچھیں
+	val, err := rdb.Get(context.Background(), key).Result()
+	
+	// اگر نہیں ملی یا ایرر آیا
+	if err != nil || val == "" {
+		return types.EmptyJID, false
+	}
+	
+	// 4. سٹرنگ کو واپس JID آبجیکٹ بنائیں
+	parsed, err := types.ParseJID(val)
+	if err != nil {
+		return types.EmptyJID, false
+	}
+	
+	return parsed, true
+}
+
 
 func isKnownCommand(text string) bool {
 	commands := []string{
