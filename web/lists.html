@@ -60,10 +60,9 @@
       border:1px solid rgba(255,255,255,.08);
       overflow:hidden;
     }
-    /* 👇 center photo inside circle (zoom + fit) */
     .wa-logo-inner img{
       width:100%; height:100%; object-fit:cover;
-      transform: scale(1.12); /* slight zoom like WA style */
+      transform: scale(1.12);
       filter: saturate(1.1) contrast(1.05);
     }
 
@@ -129,9 +128,7 @@
       display:flex; align-items:center; justify-content:space-between;
       padding:10px 6px 14px;
     }
-    .brand{
-      display:flex; gap:10px; align-items:center;
-    }
+    .brand{ display:flex; gap:10px; align-items:center; }
     .brand-badge{
       width:38px; height:38px; border-radius:12px;
       background: linear-gradient(180deg, rgba(0,168,132,.25), rgba(0,0,0,.15));
@@ -148,10 +145,7 @@
       background: rgba(241,92,109,.08);
       font-weight:600;
     }
-    .sessions{
-      display:flex; flex-direction:column; gap:12px;
-      margin-top:8px;
-    }
+    .sessions{ display:flex; flex-direction:column; gap:12px; margin-top:8px; }
     .session-card{
       background: linear-gradient(180deg, rgba(17,27,33,.92), rgba(15,26,32,.92));
       border:1px solid rgba(255,255,255,.07);
@@ -208,14 +202,10 @@
       border-bottom:1px solid rgba(255,255,255,.06);
       background: linear-gradient(180deg, rgba(17,27,33,.98), rgba(17,27,33,.92));
     }
-    .header-left{
-      display:flex; gap:10px; align-items:center;
-    }
+    .header-left{ display:flex; gap:10px; align-items:center; }
     .header-title{ font-weight:800; font-size:18px; }
     .header-sub{ font-size:12px; color:var(--muted); margin-top:2px; }
-    .header-right{
-      display:flex; gap:10px; align-items:center;
-    }
+    .header-right{ display:flex; gap:10px; align-items:center; }
     .pill{
       padding:8px 12px;
       border-radius:999px;
@@ -352,9 +342,7 @@
       display:grid; place-items:center;
       cursor:pointer;
     }
-    .nav-title{
-      display:flex; flex-direction:column; min-width:0;
-    }
+    .nav-title{ display:flex; flex-direction:column; min-width:0; }
     .nav-name{
       font-weight:900; font-size:14px;
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
@@ -385,10 +373,7 @@
       background-size: auto, 420px;
       background-blend-mode: normal;
     }
-    .load-more{
-      display:flex; justify-content:center;
-      margin: 6px 0 12px;
-    }
+    .load-more{ display:flex; justify-content:center; margin: 6px 0 12px; }
     .load-more button{
       border:none;
       padding:8px 12px;
@@ -400,10 +385,7 @@
       cursor:pointer;
     }
 
-    .msg-row{
-      display:flex;
-      margin: 4px 0;
-    }
+    .msg-row{ display:flex; margin: 4px 0; }
     .msg{
       max-width: 82%;
       padding: 7px 9px;
@@ -457,11 +439,7 @@
       border:1px solid rgba(255,255,255,.08);
       background: rgba(0,0,0,.12);
     }
-    .chat-img{
-      width: 100%;
-      display:block;
-      border-radius: 10px;
-    }
+    .chat-img{ width: 100%; display:block; border-radius: 10px; }
 
     /* WA style: blurred placeholder + download/play */
     .media-placeholder{
@@ -505,6 +483,7 @@
       border:1px solid rgba(255,255,255,.12);
       cursor:pointer;
       flex-shrink:0;
+      user-select:none;
     }
     .wa-audio .meta{ flex:1; min-width:0; }
     .wa-audio .bar{
@@ -541,11 +520,7 @@
       max-width: 92vw;
     }
     .toast.show{ display:flex; }
-    .toast .x{
-      color: var(--danger);
-      font-weight:900;
-      font-size:16px;
-    }
+    .toast .x{ color: var(--danger); font-weight:900; font-size:16px; }
     .toast .ok{
       margin-left:auto;
       padding:8px 12px;
@@ -557,14 +532,14 @@
       color: rgba(233,237,239,.92);
     }
 
-    /* lightbox */
-    #lightbox{
+    /* ✅ Media Viewer (inside webview) */
+    #media-viewer{
       display:none; position:fixed; inset:0; z-index:9998;
       background: rgba(0,0,0,.92);
       align-items:center; justify-content:center;
+      padding: 22px 14px;
     }
-    #lightbox img{ max-width:100%; max-height:100%; }
-    .lb-close{
+    .mv-close{
       position:absolute; top:18px; left:18px;
       width:44px; height:44px;
       border-radius: 14px;
@@ -574,7 +549,11 @@
       font-size:22px;
       cursor:pointer;
       color:#fff;
+      z-index:2;
+      user-select:none;
     }
+    #mv-img{ max-width:100%; max-height:100%; border-radius: 14px; }
+    #mv-video{ max-width:100%; max-height:100%; border-radius: 14px; background:#000; }
   </style>
 </head>
 
@@ -584,7 +563,6 @@
   <div id="splash">
     <div class="wa-logo-wrap">
       <div class="wa-logo-inner">
-        <!-- ✅ your /pic.png inside circle -->
         <img src="/pic.png" alt="logo" />
       </div>
       <div class="wa-tail"></div>
@@ -668,15 +646,14 @@
       <button class="info-btn" onclick="showInfo()">i</button>
     </div>
 
-    <div class="messages-area" id="msg-box">
-      <!-- dynamic -->
-    </div>
+    <div class="messages-area" id="msg-box"></div>
   </div>
 
-  <!-- Lightbox -->
-  <div id="lightbox">
-    <div class="lb-close" onclick="closeLightbox()">×</div>
-    <img id="lb-img" src="" alt="preview" />
+  <!-- ✅ Media Viewer (Image/Video opens inside webview) -->
+  <div id="media-viewer">
+    <div class="mv-close" onclick="closeMediaViewer()">×</div>
+    <img id="mv-img" src="" alt="preview" style="display:none" />
+    <video id="mv-video" controls playsinline style="display:none"></video>
   </div>
 
 <script>
@@ -684,7 +661,6 @@
   const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
   const cleanNumber = (jid) => {
     if(!jid) return "";
-    // remove @server, remove :device
     const left = jid.split("@")[0];
     return left.includes(":") ? left.split(":")[0] : left;
   };
@@ -698,6 +674,39 @@
   }
   function hideToast(){ document.getElementById('toast').classList.remove('show'); }
 
+  /* ---------------- Media Viewer (inside page) ---------------- */
+  function openMediaViewer(kind, src){
+    const mv = document.getElementById('media-viewer');
+    const img = document.getElementById('mv-img');
+    const vid = document.getElementById('mv-video');
+
+    // stop previous video
+    try{ vid.pause(); }catch{}
+
+    img.style.display='none';
+    vid.style.display='none';
+    img.src='';
+    vid.removeAttribute('src');
+    try{ vid.load(); }catch{}
+
+    if(kind === 'image' || kind === 'sticker'){
+      img.src = src;
+      img.style.display = 'block';
+    }else if(kind === 'video'){
+      vid.src = src;
+      vid.style.display = 'block';
+      // autoplay optional (commented)
+      // try{ vid.play(); }catch{}
+    }
+    mv.style.display = 'flex';
+  }
+  function closeMediaViewer(){
+    const mv = document.getElementById('media-viewer');
+    const vid = document.getElementById('mv-video');
+    mv.style.display = 'none';
+    try{ vid.pause(); }catch{}
+  }
+
   /* ---------------- IndexedDB media cache ---------------- */
   const dbName="WA_VIP_DB";
   let db;
@@ -709,9 +718,7 @@
   req.onsuccess=e=>{ db=e.target.result; };
   function saveLocal(id,c){
     if(!db) return;
-    try{
-      db.transaction(["media"],"readwrite").objectStore("media").put({id,c});
-    }catch{}
+    try{ db.transaction(["media"],"readwrite").objectStore("media").put({id,c}); }catch{}
   }
   function getLocal(id,cb){
     if(!db) return cb(null);
@@ -735,27 +742,26 @@
   let allChats=[];
   let activeTab='chats';
   let activeChatID=null;
-  let activeChatToken=0;      // ✅ prevents old fetch overwrite
-  let msgAbort=null;          // ✅ abort controller
+  let activeChatToken=0;
+  let msgAbort=null;
   let pollInterval=null;
 
-  // unread counters (simple)
-  const unread = new Map();   // chat_id -> count
-  function bumpUnread(chatId){
-    unread.set(chatId, (unread.get(chatId)||0)+1);
-  }
-  function clearUnread(chatId){
-    unread.delete(chatId);
-  }
+  // ✅ keep DOM stable (no full rerender on background)
+  let fullMsgs = [];
+  let renderedIds = new Set();     // message_id rendered in DOM
+  let visibleCount = 120;          // initial show
+  let loadMoreUsed = false;
+
+  // unread counters
+  const unread = new Map();
+  function bumpUnread(chatId){ unread.set(chatId, (unread.get(chatId)||0)+1); }
+  function clearUnread(chatId){ unread.delete(chatId); }
 
   /* ---------------- splash boot ---------------- */
   window.onload = async ()=>{
-    // show splash exactly ~3s
     await sleep(3000);
-
     document.getElementById('splash').style.display='none';
     document.getElementById('home-view').style.display='block';
-
     loadSessions();
   };
 
@@ -795,7 +801,6 @@
     document.getElementById('active-bot-pill').innerText = `BOT: ${id}`;
     document.getElementById('hdr-sub').innerText = "Syncing…";
 
-    // show cached list instantly (if exists)
     const cached = LS.getJSON(LS.chatsKey(currentBot, activeTab));
     if(cached && Array.isArray(cached)){
       allChats = cached;
@@ -833,7 +838,6 @@
     list.innerHTML='';
 
     let filtered = allChats.filter(c=>{
-      // NOTE: backend sends c.type = 'group' or 'user' (your existing logic)
       if(activeTab==='groups') return c.type==='group';
       if(activeTab==='status') return c.type==='status' || isStatusJid(c.id);
       return c.type==='user';
@@ -841,9 +845,8 @@
 
     filtered.forEach(c=>{
       const jid = c.id || "";
-      const number = cleanNumber(jid); // ✅ hide LID, show number
+      const number = cleanNumber(jid);
       const aid=`av_${(jid||'').replace(/[^a-zA-Z0-9]/g,'')}`;
-
       const cnt = unread.get(jid) || 0;
 
       list.innerHTML += `
@@ -860,7 +863,6 @@
         </div>
       `;
 
-      // try avatar (optional)
       fetch(`/api/avatar?bot_id=${encodeURIComponent(currentBot)}&chat_id=${encodeURIComponent(jid)}`)
         .then(r=>r.json())
         .then(d=>{ if(d.url) document.getElementById(aid).src=d.url; })
@@ -874,7 +876,6 @@
 
   /* ---------------- chat open / close ---------------- */
   function closeChat(){
-    // stop polling + abort inflight
     if(pollInterval) clearInterval(pollInterval);
     pollInterval=null;
 
@@ -882,6 +883,11 @@
     msgAbort=null;
 
     activeChatID=null;
+    fullMsgs = [];
+    renderedIds = new Set();
+    visibleCount = 120;
+    loadMoreUsed = false;
+
     document.getElementById('chat-window').classList.remove('show');
   }
 
@@ -892,7 +898,6 @@
   }
 
   async function openChat(cid,name,aid){
-    // ✅ abort previous immediately
     if(msgAbort){ try{ msgAbort.abort(); }catch{} }
     msgAbort = new AbortController();
 
@@ -900,10 +905,15 @@
     activeChatToken++;
     const token = activeChatToken;
 
-    clearUnread(cid); // opened => clear unread
-    renderList();     // refresh dots
+    // reset per chat
+    fullMsgs = [];
+    renderedIds = new Set();
+    visibleCount = 120;
+    loadMoreUsed = false;
 
-    // header
+    clearUnread(cid);
+    renderList();
+
     document.getElementById('header-name').innerText = name;
     document.getElementById('header-sub').innerText = cleanNumber(cid) || cid;
     const src=document.getElementById(aid)?.src || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}`;
@@ -920,118 +930,21 @@
       </div>
     `;
 
-    // ✅ instant render from LocalStorage cache (if exists)
+    // ✅ instant render from LocalStorage
     const cachedMsgs = LS.getJSON(LS.msgsKey(currentBot, cid));
     if(cachedMsgs && Array.isArray(cachedMsgs) && cachedMsgs.length){
-      renderMessages(box, cachedMsgs, token, {fromCache:true});
-      // background refresh
+      renderMessagesFull(box, cachedMsgs, token, {fromCache:true});
+      // background refresh (NO full rerender; only append new)
       loadMessages(cid, token, {background:true});
     }else{
       await loadMessages(cid, token, {background:false});
     }
 
-    // polling live (every 4s)
     if(pollInterval) clearInterval(pollInterval);
-    pollInterval = setInterval(()=> loadMessages(cid, token, {background:true}), 4000);
+    pollInterval = setInterval(()=> loadMessages(cid, token, {background:true}), 3000);
   }
 
-  /* ---------------- messages render + paging (client-side) ---------------- */
-  // store full list in memory per open chat
-  let fullMsgs = [];
-  let visibleCount = 120; // show last 120 initially (near your "last 100/200" request)
-
-  function renderMessages(container, msgs, token, opts={}){
-    if(token !== activeChatToken) return;
-    if(activeChatID==null) return;
-
-    // cache full list
-    fullMsgs = msgs;
-
-    // show last N only
-    const start = Math.max(0, msgs.length - visibleCount);
-    const slice = msgs.slice(start);
-
-    container.innerHTML = '';
-
-    // load more button if older exists
-    if(start > 0){
-      const lm = document.createElement('div');
-      lm.className='load-more';
-      lm.innerHTML = `<button onclick="loadMore()">Load more</button>`;
-      container.appendChild(lm);
-    }
-
-    slice.forEach(m=>{
-      const row=document.createElement('div');
-      row.className='msg-row';
-
-      const isMe=!!m.is_from_me;
-      const bubble=document.createElement('div');
-      bubble.className = `msg ${isMe?'sent':'recv'}`;
-
-      // sender name in groups (but show clean number)
-      if(!isMe && m.is_group){
-        const sn=document.createElement('div');
-        sn.className='sender-name';
-        sn.innerText = (m.sender_name || cleanNumber(m.sender) || cleanNumber(m.chat_id) || "User");
-        bubble.appendChild(sn);
-      }
-
-      // reply
-      if(m.quoted_msg){
-        const rb=document.createElement('div');
-        rb.className='reply-box';
-        const qs = cleanNumber(m.quoted_sender || "") || (m.quoted_sender || "Unknown");
-        rb.innerHTML = `<div class="reply-sender">${qs}</div><div class="reply-text">${escapeHTML(m.quoted_msg)}</div>`;
-        bubble.appendChild(rb);
-      }
-
-      // content
-      const contentNode = document.createElement('div');
-
-      if(m.is_sticker){
-        // sticker as image
-        contentNode.innerHTML = renderMediaPlaceholderOrImg(m, "sticker");
-      }else if(m.type==='text'){
-        contentNode.innerHTML = escapeHTML(m.content||"");
-      }else if(m.type==='image'){
-        contentNode.innerHTML = renderMediaPlaceholderOrImg(m, "image");
-      }else if(m.type==='video'){
-        contentNode.innerHTML = renderVideo(m);
-      }else if(m.type==='audio'){
-        contentNode.innerHTML = renderAudio(m);
-      }else{
-        // file
-        contentNode.innerHTML = `<a href="${escapeAttr(m.content||'#')}" target="_blank" style="color:var(--primary2); font-weight:800;">📄 Download</a>`;
-      }
-
-      bubble.appendChild(contentNode);
-
-      // time
-      const t = m.timestamp ? new Date(m.timestamp) : new Date();
-      const time = t.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-      const timeEl=document.createElement('div');
-      timeEl.className='time';
-      timeEl.innerText = time;
-      bubble.appendChild(timeEl);
-
-      row.appendChild(bubble);
-      container.appendChild(row);
-    });
-
-    // scroll to bottom only if NOT background update
-    if(!opts.background){
-      container.scrollTop = container.scrollHeight;
-    }
-  }
-
-  function loadMore(){
-    visibleCount += 120;
-    const box=document.getElementById('msg-box');
-    renderMessages(box, fullMsgs, activeChatToken, {background:true});
-    // keep scroll around top-ish (simple)
-    box.scrollTop = 80;
-  }
+  /* ---------------- rendering (stable DOM) ---------------- */
 
   function escapeHTML(s){
     return (s||"")
@@ -1043,7 +956,130 @@
   }
   function escapeAttr(s){ return escapeHTML(s); }
 
-  /* ---------------- media rendering (placeholder + manual download) ---------------- */
+  function ensureLoadMoreBtn(container, need){
+    let lm = document.getElementById('load-more-wrap');
+    if(need){
+      if(!lm){
+        lm = document.createElement('div');
+        lm.className = 'load-more';
+        lm.id = 'load-more-wrap';
+        lm.innerHTML = `<button onclick="loadMore()">Load more</button>`;
+        container.prepend(lm);
+      }
+    }else{
+      if(lm) lm.remove();
+    }
+  }
+
+  function buildMessageNode(m){
+    const row=document.createElement('div');
+    row.className='msg-row';
+
+    const isMe=!!m.is_from_me;
+    const bubble=document.createElement('div');
+    bubble.className = `msg ${isMe?'sent':'recv'}`;
+
+    if(!isMe && m.is_group){
+      const sn=document.createElement('div');
+      sn.className='sender-name';
+      sn.innerText = (m.sender_name || cleanNumber(m.sender) || cleanNumber(m.chat_id) || "User");
+      bubble.appendChild(sn);
+    }
+
+    if(m.quoted_msg){
+      const rb=document.createElement('div');
+      rb.className='reply-box';
+      const qs = cleanNumber(m.quoted_sender || "") || (m.quoted_sender || "Unknown");
+      rb.innerHTML = `<div class="reply-sender">${escapeHTML(qs)}</div><div class="reply-text">${escapeHTML(m.quoted_msg)}</div>`;
+      bubble.appendChild(rb);
+    }
+
+    const contentNode = document.createElement('div');
+
+    if(m.is_sticker){
+      contentNode.innerHTML = renderMediaPlaceholderOrImg(m, "sticker");
+    }else if(m.type==='text'){
+      contentNode.innerHTML = escapeHTML(m.content||"");
+    }else if(m.type==='image'){
+      contentNode.innerHTML = renderMediaPlaceholderOrImg(m, "image");
+    }else if(m.type==='video'){
+      contentNode.innerHTML = renderVideo(m);
+    }else if(m.type==='audio'){
+      contentNode.innerHTML = renderAudio(m);
+    }else{
+      contentNode.innerHTML = `<a href="${escapeAttr(m.content||'#')}" target="_blank" style="color:var(--primary2); font-weight:800;">📄 Download</a>`;
+    }
+
+    bubble.appendChild(contentNode);
+
+    const t = m.timestamp ? new Date(m.timestamp) : new Date();
+    const time = t.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    const timeEl=document.createElement('div');
+    timeEl.className='time';
+    timeEl.innerText = time;
+    bubble.appendChild(timeEl);
+
+    row.appendChild(bubble);
+    return row;
+  }
+
+  // Full render (only when opening chat / load more)
+  function renderMessagesFull(container, msgs, token, opts={}){
+    if(token !== activeChatToken) return;
+    if(activeChatID==null) return;
+
+    fullMsgs = Array.isArray(msgs) ? msgs : [];
+    renderedIds = new Set();
+
+    const start = Math.max(0, fullMsgs.length - visibleCount);
+    const slice = fullMsgs.slice(start);
+
+    // IMPORTANT: full clear only in non-background
+    container.innerHTML = '';
+
+    ensureLoadMoreBtn(container, start > 0);
+
+    slice.forEach(m=>{
+      if(!m?.message_id) return;
+      renderedIds.add(m.message_id);
+      container.appendChild(buildMessageNode(m));
+    });
+
+    // scroll to bottom for fresh open
+    if(!opts.background){
+      container.scrollTop = container.scrollHeight;
+    }
+  }
+
+  // Append only new messages (NO refresh => audio won’t stop)
+  function appendNewMessages(container, newMsgs){
+    if(!newMsgs || !newMsgs.length) return;
+
+    // are we near bottom?
+    const nearBottom = (container.scrollHeight - container.scrollTop - container.clientHeight) < 180;
+
+    newMsgs.forEach(m=>{
+      if(!m?.message_id) return;
+      if(renderedIds.has(m.message_id)) return;
+      renderedIds.add(m.message_id);
+      container.appendChild(buildMessageNode(m));
+    });
+
+    if(nearBottom){
+      container.scrollTop = container.scrollHeight;
+    }
+  }
+
+  function loadMore(){
+    visibleCount += 120;
+    loadMoreUsed = true;
+    const box=document.getElementById('msg-box');
+    renderMessagesFull(box, fullMsgs, activeChatToken, {background:false});
+    // keep scroll a bit down after showing older
+    box.scrollTop = 90;
+  }
+
+  /* ---------------- media rendering ---------------- */
   function renderMediaPlaceholderOrImg(m, kind){
     const uid = m.message_id;
     const isWaiting = (m.content === 'MEDIA_WAITING' || !m.content);
@@ -1051,22 +1087,21 @@
     if(!uid) return `<div style="color:var(--muted)">media</div>`;
 
     if(isWaiting){
-      // ✅ show placeholder with download icon like WhatsApp
+      // ✅ placeholder with download button
       return `
         <div class="media-wrap">
-          <div class="media-placeholder">
-            <div class="media-btn" onclick="downloadMedia('${uid}', 'img-${uid}', '${kind}')">⬇</div>
+          <div class="media-placeholder" id="ph-${uid}">
+            <div class="media-btn" id="btn-${uid}" onclick="downloadMedia('${uid}', 'img-${uid}', '${kind}')">⬇</div>
           </div>
-          <img id="img-${uid}" class="chat-img" style="display:none" onclick="showLightbox(this.src)"/>
+          <img id="img-${uid}" class="chat-img" style="display:none; cursor:pointer;" onclick="openMediaViewer('${kind}','${escapeAttr('')}')"/>
         </div>
       `;
     }
 
-    // already has direct content (base64 or url)
-    const cls = (kind==='sticker') ? `style="width:140px;height:auto;object-fit:contain;border-radius:10px"` : ``;
+    const cls = (kind==='sticker') ? `style="width:140px;height:auto;object-fit:contain;border-radius:10px; cursor:pointer;"` : `style="cursor:pointer;"`;
     return `
       <div class="media-wrap">
-        <img class="chat-img" ${cls} src="${escapeAttr(m.content)}" onclick="showLightbox(this.src)"/>
+        <img class="chat-img" ${cls} src="${escapeAttr(m.content)}" onclick="openMediaViewer('${kind}','${escapeAttr(m.content)}')"/>
       </div>
     `;
   }
@@ -1078,16 +1113,19 @@
     if(isWaiting){
       return `
         <div class="media-wrap">
-          <div class="media-placeholder" style="height:190px;">
-            <div class="media-btn" onclick="downloadMedia('${uid}', 'vid-${uid}', 'video')">⬇</div>
+          <div class="media-placeholder" id="ph-${uid}" style="height:190px;">
+            <div class="media-btn" id="btn-${uid}" onclick="downloadMedia('${uid}', 'vid-${uid}', 'video')">⬇</div>
           </div>
-          <video id="vid-${uid}" style="display:none; width:100%; border-radius:10px;" controls></video>
+          <video id="vid-${uid}" style="display:none; width:100%; border-radius:10px; cursor:pointer;" controls playsinline></video>
         </div>
       `;
     }
+
+    // ✅ inline video + click opens viewer (inside webview)
     return `
       <div class="media-wrap">
-        <video src="${escapeAttr(m.content)}" style="width:100%; border-radius:10px;" controls></video>
+        <video src="${escapeAttr(m.content)}" style="width:100%; border-radius:10px; cursor:pointer;" controls playsinline
+          onclick="openMediaViewer('video','${escapeAttr(m.content)}')"></video>
       </div>
     `;
   }
@@ -1099,7 +1137,7 @@
     if(isWaiting){
       return `
         <div class="wa-audio" id="aud-wrap-${uid}">
-          <div class="btn" onclick="downloadAudio('${uid}')">⬇</div>
+          <div class="btn" id="aud-btn-${uid}" onclick="downloadAudio('${uid}')">⬇</div>
           <div class="meta">
             <div style="font-weight:900; font-size:12px;">Voice message</div>
             <div class="bar"><i id="aud-bar-${uid}"></i></div>
@@ -1109,6 +1147,7 @@
       `;
     }
 
+    // already has audio link
     return `
       <div class="wa-audio">
         <audio src="${escapeAttr(m.content)}" controls style="width:100%; height:32px; filter:invert(.92);"></audio>
@@ -1118,7 +1157,6 @@
 
   async function downloadMedia(uid, elId, kind){
     try{
-      // try local cache first
       getLocal(uid, async (data)=>{
         if(data){
           applyDownloadedMedia(uid, elId, kind, data);
@@ -1140,20 +1178,30 @@
   }
 
   function applyDownloadedMedia(uid, elId, kind, content){
+    // hide placeholder button area and show real media
+    const ph = document.getElementById(`ph-${uid}`);
+    const btn = document.getElementById(`btn-${uid}`);
+
+    if(ph) ph.style.display = 'none';
+    if(btn) btn.style.display = 'none';
+
     if(kind==='video'){
       const v = document.getElementById(elId);
       if(!v) return;
       v.src = content;
       v.style.display='block';
-      // hide placeholder: previous sibling (simpler: keep)
+      v.onclick = ()=> openMediaViewer('video', content);
+      // optional: don't autoplay
     }else{
       const img=document.getElementById(elId);
       if(!img) return;
       img.src = content;
       img.style.display='block';
+      img.style.cursor = 'pointer';
+      img.onclick = ()=> openMediaViewer(kind, content);
     }
 
-    // also update message in cache (so next time not waiting)
+    // also update message cache (so next open shows instantly)
     const k = LS.msgsKey(currentBot, activeChatID);
     const cached = LS.getJSON(k) || [];
     const idx = cached.findIndex(x=>x.message_id===uid);
@@ -1165,7 +1213,6 @@
 
   async function downloadAudio(uid){
     try{
-      // local first
       getLocal(uid, async (data)=>{
         if(data){
           setupAudio(uid, data);
@@ -1189,33 +1236,30 @@
   function setupAudio(uid, src){
     const wrap=document.getElementById(`aud-wrap-${uid}`);
     const audio=document.getElementById(`audio-${uid}`);
-    if(!wrap || !audio) return;
+    const btn=document.getElementById(`aud-btn-${uid}`);
+    if(!wrap || !audio || !btn) return;
 
     audio.src = src;
 
-    // Replace button with play/pause
-    wrap.querySelector('.btn').innerText = '▶';
+    // ✅ once downloaded => show play/pause (not download)
+    btn.innerText = '▶';
 
-    wrap.querySelector('.btn').onclick = ()=>{
+    btn.onclick = ()=>{
       if(audio.paused) audio.play(); else audio.pause();
-      wrap.querySelector('.btn').innerText = audio.paused ? '▶' : '⏸';
+      btn.innerText = audio.paused ? '▶' : '⏸';
     };
 
-    // basic progress
     const bar = document.getElementById(`aud-bar-${uid}`);
     audio.ontimeupdate = ()=>{
       if(!bar || !audio.duration) return;
       const p = (audio.currentTime / audio.duration) * 100;
       bar.style.width = p.toFixed(2) + '%';
     };
-  }
 
-  function showLightbox(src){
-    document.getElementById('lb-img').src=src;
-    document.getElementById('lightbox').style.display='flex';
-  }
-  function closeLightbox(){
-    document.getElementById('lightbox').style.display='none';
+    audio.onended = ()=>{
+      btn.innerText = '▶';
+      if(bar) bar.style.width = '0%';
+    };
   }
 
   /* ---------------- load messages (server) ---------------- */
@@ -1225,40 +1269,54 @@
       if(activeChatID !== cid) return;
 
       const box=document.getElementById('msg-box');
-
-      // optional paging params (backend can ignore)
       const limit = 200;
       const url = `/api/messages?bot_id=${encodeURIComponent(currentBot)}&chat_id=${encodeURIComponent(cid)}&limit=${limit}`;
 
       const res = await fetch(url, { signal: msgAbort?.signal });
       if(!res.ok) throw new Error("messages failed");
+
       const msgs = await res.json();
       if(token !== activeChatToken) return;
       if(activeChatID !== cid) return;
 
-      // Save to localStorage for instant reopen
-      if(Array.isArray(msgs)){
-        LS.setJSON(LS.msgsKey(currentBot, cid), msgs);
+      const arr = Array.isArray(msgs) ? msgs : [];
+
+      // save for instant reopen
+      LS.setJSON(LS.msgsKey(currentBot, cid), arr);
+
+      if(!opts.background){
+        // full render once
+        renderMessagesFull(box, arr, token, {background:false});
+        return;
       }
 
-      // detect new messages to bump unread in list (only if background)
-      if(opts.background){
-        const old = fullMsgs || [];
-        const oldLast = old.length ? old[old.length-1]?.message_id : null;
-        const newLast = msgs.length ? msgs[msgs.length-1]?.message_id : null;
-        if(newLast && oldLast && newLast !== oldLast){
-          // if chat is open we don’t unread, but we can “live update” immediately
-        }
+      // ✅ background mode: DO NOT REFRESH FULL UI
+      // detect new messages by message_id
+      const prevLast = fullMsgs.length ? fullMsgs[fullMsgs.length-1]?.message_id : null;
+      const newLast  = arr.length ? arr[arr.length-1]?.message_id : null;
+
+      // if nothing changed, do nothing (keeps audio playing)
+      if(prevLast && newLast && prevLast === newLast) return;
+
+      // update fullMsgs
+      const oldIds = new Set(fullMsgs.map(x=>x?.message_id).filter(Boolean));
+      fullMsgs = arr;
+
+      // only append new ones at end
+      const newOnes = [];
+      for(const m of arr){
+        if(!m?.message_id) continue;
+        if(!oldIds.has(m.message_id)) newOnes.push(m);
       }
 
-      renderMessages(box, Array.isArray(msgs)?msgs:[], token, {background:opts.background});
+      // if user used loadMore (older messages visible), still safe to just append new at bottom
+      appendNewMessages(box, newOnes);
+
     }catch(e){
-      // ignore abort errors
       if(String(e).toLowerCase().includes("abort")) return;
       if(!opts.background) showToast("Failed to load messages");
     }
   }
-
 </script>
 </body>
 </html>
