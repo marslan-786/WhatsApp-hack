@@ -924,6 +924,7 @@ func handleGetChats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(chatList)
 }
 
+// 4. Get Messages (FULL DATA LOAD - NO WAITING)
 func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	if chatHistoryCollection == nil {
 		http.Error(w, "MongoDB not connected", 500)
@@ -947,11 +948,9 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for i := range messages {
-		if len(messages[i].Content) > 500 && strings.HasPrefix(messages[i].Content, "data:") {
-			messages[i].Content = "MEDIA_WAITING"
-		}
-	}
+	// 🚀 NOTE: Base64 Masking Removed.
+	// Now sending full media immediately to fix "Spinning" issue.
+	// Frontend will cache this to IndexedDB to save bandwidth on next reload.
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(messages)
