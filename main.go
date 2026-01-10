@@ -826,23 +826,15 @@ func handleGetSessions(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(sessions)
 }
 
+// 3. Get Chats (UPDATED: Channels & Group Names Fix)
 func handleGetChats(w http.ResponseWriter, r *http.Request) {
-	if chatHistoryCollection == nil {
-		http.Error(w, "MongoDB not connected", 500)
-		return
-	}
+	if chatHistoryCollection == nil { http.Error(w, "MongoDB not connected", 500); return }
 	botID := r.URL.Query().Get("bot_id")
-	if botID == "" {
-		http.Error(w, "Bot ID required", 400)
-		return
-	}
+	if botID == "" { http.Error(w, "Bot ID required", 400); return }
 
 	filter := bson.M{"bot_id": botID}
 	rawChats, err := chatHistoryCollection.Distinct(context.Background(), "chat_id", filter)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
+	if err != nil { http.Error(w, err.Error(), 500); return }
 
 	clientsMutex.RLock()
 	client, isConnected := activeClients[botID]
@@ -854,47 +846,76 @@ func handleGetChats(w http.ResponseWriter, r *http.Request) {
 		chatID := raw.(string)
 		cleanName := ""
 		chatType := "user"
+		avatarURL := ""
+
+		jid, _ := types.ParseJID(chatID)
 
 		if strings.Contains(chatID, "@g.us") {
 			chatType = "group"
-		}
-		if strings.Contains(chatID, "@newsletter") {
-			chatType = "channel"
-		}
-
-		if isConnected && client != nil {
-			jid, _ := types.ParseJID(chatID)
-
-			// ✅ FIX: Use Contacts for name lookup (works for users & groups in whatsmeow)
-			if contact, err := client.Store.Contacts.GetContact(context.Background(), jid); err == nil && contact.Found {
-				cleanName = contact.FullName
+			// 👥 GROUP NAME & AVATAR
+			if isConnected && client != nil {
+				// 1. Try Store First
+				if info, err := client.Store.ChatSettings.GetChatSettings(jid); err == nil && info.Name != "" {
+					cleanName = info.Name
+				}
+				// 2. Try Network Fetch (If store failed)
 				if cleanName == "" {
-					cleanName = contact.PushName
+					// Short timeout to prevent hanging
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					if grp, err := client.GetGroupInfo(ctx, jid); err == nil {
+						cleanName = grp.Name
+						cancel()
+					} else {
+						cancel()
+					}
+				}
+			}
+		} else if strings.Contains(chatID, "@newsletter") {
+			chatType = "channel"
+			// 📰 CHANNEL NAME & AVATAR
+			if isConnected && client != nil {
+				// Newsletter info requires network usually
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				if metadata, err := client.GetNewsletterInfo(ctx, jid); err == nil {
+					cleanName = metadata.Name
+					if metadata.Picture != nil {
+						avatarURL = metadata.Picture.URL
+					}
+					cancel()
+				} else {
+					cancel()
+				}
+			}
+		} else {
+			// 👤 USER NAME
+			if isConnected && client != nil {
+				if contact, err := client.Store.Contacts.GetContact(context.Background(), jid); err == nil && contact.Found {
+					cleanName = contact.FullName
+					if cleanName == "" { cleanName = contact.PushName }
 				}
 			}
 		}
 
+		// Fallback: Check MongoDB History if name is still empty
 		if cleanName == "" {
 			var lastMsg ChatMessage
-			err := chatHistoryCollection.FindOne(context.Background(),
-				bson.M{"bot_id": botID, "chat_id": chatID, "sender_name": bson.M{"$ne": ""}},
+			err := chatHistoryCollection.FindOne(context.Background(), 
+				bson.M{"bot_id": botID, "chat_id": chatID, "sender_name": bson.M{"$ne": ""}}, 
 				options.FindOne().SetSort(bson.D{{Key: "timestamp", Value: -1}})).Decode(&lastMsg)
-
 			if err == nil && lastMsg.SenderName != "" && lastMsg.SenderName != chatID {
 				cleanName = lastMsg.SenderName
 			}
 		}
 
+		// Final Fallback
 		if cleanName == "" {
-			if chatType == "group" {
-				cleanName = "Unknown Group"
-			} else if chatType == "channel" {
-				cleanName = "Unknown Channel"
-			} else {
-				cleanName = "+" + strings.Split(chatID, "@")[0]
-			}
+			if chatType == "group" { cleanName = "Unknown Group" }
+			else if chatType == "channel" { cleanName = "Unknown Channel" }
+			else { cleanName = "+" + strings.Split(chatID, "@")[0] }
 		}
 
+		// Use fetched Avatar if available, else send ID for frontend to fetch later
+		// (We send ID in Name field purely for identification if needed, but structure is cleaner now)
 		chatList = append(chatList, ChatItem{
 			ID:   chatID,
 			Name: cleanName,
@@ -905,6 +926,8 @@ func handleGetChats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(chatList)
 }
+
+
 
 func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	if chatHistoryCollection == nil {
@@ -939,29 +962,25 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(messages)
 }
 
+// 5. Get Media (FIXED: Ensure Content Delivery)
 func handleGetMedia(w http.ResponseWriter, r *http.Request) {
-	if chatHistoryCollection == nil {
-		http.Error(w, "MongoDB not connected", 500)
-		return
-	}
-
+	if chatHistoryCollection == nil { http.Error(w, "DB Error", 500); return }
 	msgID := r.URL.Query().Get("msg_id")
-	if msgID == "" {
-		http.Error(w, "Message ID required", 400)
-		return
-	}
 
-	filter := bson.M{"message_id": msgID}
 	var msg ChatMessage
-	err := chatHistoryCollection.FindOne(context.Background(), filter).Decode(&msg)
+	err := chatHistoryCollection.FindOne(context.Background(), bson.M{"message_id": msgID}).Decode(&msg)
+	
 	if err != nil {
-		http.Error(w, "Media not found", 404)
+		http.Error(w, "Not Found", 404)
 		return
 	}
 
+	// ⚡ Send data directly
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
+		"status": "ok",
 		"content": msg.Content,
+		"type": msg.Type,
 	})
 }
 
