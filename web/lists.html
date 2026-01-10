@@ -1,473 +1,456 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>WhatsApp VIP</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
   <style>
     :root{
       --bg-dark:#0b141a;
       --bg-panel:#111b21;
-      --bg-panel2:#0f1a20;
       --primary:#00a884;
-      --primary2:#24d366;
       --bubble-sent:#005c4b;
       --bubble-rec:#202c33;
       --text-main:#e9edef;
       --text-muted:#8696a0;
       --border:#222d34;
-      --shadow:0 12px 26px rgba(0,0,0,.35);
+      --card:#0f1a20;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
     }
     *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
     body{
-      margin:0; font-family:'Inter',sans-serif; background:var(--bg-dark);
-      color:var(--text-main); height:100vh; overflow:hidden;
-      display:flex; flex-direction:column;
+      margin:0; font-family:'Inter',sans-serif; background:var(--bg-dark); color:var(--text-main);
+      height:100vh; overflow:hidden; display:flex; flex-direction:column;
     }
-    ::-webkit-scrollbar{ width:5px; } ::-webkit-scrollbar-thumb{ background:#374045; border-radius:3px; }
+    ::-webkit-scrollbar{ width:5px; }
+    ::-webkit-scrollbar-thumb{ background:#374045; border-radius:3px; }
 
-    /* ---------------- Splash (WhatsApp style) ---------------- */
+    /* ---------------- Splash ---------------- */
     #splash{
-      position:fixed; inset:0; z-index:9999;
-      display:flex; flex-direction:column; align-items:center; justify-content:center;
-      background: radial-gradient(900px 500px at 20% 10%, rgba(0,168,132,.18), transparent 60%),
-                  radial-gradient(900px 500px at 80% 0%, rgba(36,211,102,.14), transparent 60%),
+      position:fixed; inset:0; z-index:999;
+      display:flex; align-items:center; justify-content:center;
+      background: radial-gradient(1200px 800px at 50% 20%, rgba(0,168,132,.12), transparent 60%),
+                  radial-gradient(900px 700px at 20% 80%, rgba(0,168,132,.10), transparent 55%),
                   var(--bg-dark);
     }
+    .splash-wrap{
+      width:280px; max-width:80vw;
+      display:flex; flex-direction:column; align-items:center; gap:18px;
+      transform: translateY(-10px);
+    }
     .wa-logo{
-      width:110px; height:110px; border-radius:999px;
-      background: linear-gradient(180deg, rgba(0,168,132,.95), rgba(0,168,132,.65));
-      box-shadow: 0 0 0 10px rgba(0,168,132,.10), 0 18px 40px rgba(0,0,0,.55);
-      position:relative;
+      width:120px; height:120px; position:relative;
+      filter: drop-shadow(0 18px 28px rgba(0,0,0,.45));
+    }
+    .wa-logo .circle{
+      width:120px; height:120px; border-radius:50%;
+      background: linear-gradient(180deg, rgba(0,168,132,.95), rgba(0,168,132,.75));
+      border: 1px solid rgba(255,255,255,.10);
       display:flex; align-items:center; justify-content:center;
       overflow:hidden;
-      border:1px solid rgba(255,255,255,.12);
     }
-    /* tail (چونچ) */
-    .wa-logo:after{
-      content:"";
-      position:absolute;
-      width:34px; height:34px;
-      background: linear-gradient(180deg, rgba(0,168,132,.95), rgba(0,168,132,.70));
-      bottom:-8px; right:18px;
-      transform: rotate(35deg);
-      border-radius: 8px 22px 22px 22px;
-      box-shadow: 0 12px 18px rgba(0,0,0,.35);
+    /* pic.png کو گول کے اندر zoom + crop */
+    .wa-logo .circle img{
+      width:115%; height:115%;
+      object-fit:cover;
+      transform: scale(1.12); /* zoom */
+      filter: saturate(1.05) contrast(1.05);
+      border-radius:50%;
     }
-    .wa-logo img{
-      width:64px; height:64px; object-fit:contain;
-      filter: drop-shadow(0 4px 10px rgba(0,0,0,.35));
-      z-index:2;
+    .wa-logo .tail{
+      position:absolute; left:18px; bottom:-12px;
+      width:44px; height:44px;
+      background: linear-gradient(180deg, rgba(0,168,132,.95), rgba(0,168,132,.75));
+      transform: rotate(20deg);
+      border-bottom-left-radius: 46px;
+      border-top-right-radius: 46px;
+      border-top-left-radius: 12px;
+      border-bottom-right-radius: 10px;
+      box-shadow: 0 12px 20px rgba(0,0,0,.25);
+      border: 1px solid rgba(255,255,255,.08);
     }
     .splash-title{
-      margin-top:18px;
-      font-weight:700; letter-spacing:.5px;
-      color: rgba(233,237,239,.92);
+      font-weight:700; letter-spacing:.6px;
+      color:rgba(233,237,239,.95);
+      font-size:16px;
     }
-    .dots{
-      margin-top:14px; display:flex; gap:8px; align-items:center;
-      color: rgba(134,150,160,.95);
-      font-size:12px;
+    .splash-sub{
+      color:rgba(134,150,160,.95);
+      font-size:12px; text-align:center; line-height:1.4;
     }
-    .dot{
-      width:8px; height:8px; border-radius:999px;
-      background: rgba(0,168,132,.35);
-      animation: pop 1s infinite;
+    .loader{
+      width:160px; height:5px; border-radius:999px;
+      background: rgba(255,255,255,.08);
+      overflow:hidden; position:relative;
+      border: 1px solid rgba(255,255,255,.06);
     }
-    .dot:nth-child(1){ animation-delay:0ms; }
-    .dot:nth-child(2){ animation-delay:150ms; }
-    .dot:nth-child(3){ animation-delay:300ms; }
-    @keyframes pop{ 0%,100%{transform:scale(.9); opacity:.55} 50%{transform:scale(1.25); opacity:1} }
-
-    /* Mini overlay loader (same style) */
-    #overlayLoader{
-      position:fixed; inset:0; z-index:9000;
-      display:none; align-items:center; justify-content:center;
-      background: rgba(11,20,26,.78);
-      backdrop-filter: blur(10px);
+    .loader::after{
+      content:""; position:absolute; inset:0;
+      width:45%; height:100%;
+      background: linear-gradient(90deg, transparent, rgba(0,168,132,.9), transparent);
+      transform: translateX(-60%);
+      animation: load 1.1s infinite ease-in-out;
     }
-    .overlayBox{
-      display:flex; flex-direction:column; align-items:center; gap:12px;
-      padding:22px 20px;
-      border-radius:18px;
-      background: rgba(17,27,33,.82);
-      border:1px solid rgba(255,255,255,.10);
-      box-shadow: var(--shadow);
-      width:min(320px, 92vw);
+    @keyframes load{
+      0%{ transform: translateX(-60%); }
+      100%{ transform: translateX(220%); }
     }
-    .overlayText{ color:rgba(233,237,239,.92); font-weight:600; text-align:center; }
-    .overlaySub{ color:rgba(134,150,160,.92); font-size:12px; text-align:center; }
 
     /* ---------------- Home (Sessions) ---------------- */
     #home-view{
       width:100%; height:100%;
-      display:flex; flex-direction:column;
-      align-items:center;
-      padding: 18px;
-      overflow-y:auto;
-      gap:14px;
+      display:flex; flex-direction:column; align-items:center;
+      padding:16px; overflow-y:auto;
     }
-    .home-title{
-      margin-top:18px;
-      font-size:18px;
-      font-weight:800;
-      letter-spacing:.6px;
-      color:var(--primary);
+    .topbar{
+      width:100%; max-width:520px;
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 12px;
+      position:sticky; top:0;
+      background: rgba(11,20,26,.85);
+      backdrop-filter: blur(12px);
+      z-index:5;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+    }
+    .brand{
       display:flex; align-items:center; gap:10px;
     }
-    .home-title .badge{
-      font-size:11px; font-weight:700;
-      padding:5px 10px;
-      border-radius:999px;
-      border:1px solid rgba(0,168,132,.35);
-      background: rgba(0,168,132,.12);
-      color: rgba(36,211,102,.95);
-    }
-    #session-list{
-      width:100%;
-      max-width: 420px;
-      display:flex; flex-direction:column;
-      gap:12px;
-      margin-top: 8px;
-    }
-    .session-card{
-      background: linear-gradient(180deg, rgba(17,27,33,.92), rgba(17,27,33,.78));
-      border:1px solid rgba(255,255,255,.08);
-      width:100%;
-      padding: 14px 14px;
-      border-radius: 16px;
-      display:flex;
-      align-items:center;
-      gap: 14px;
-      cursor:pointer;
-      box-shadow: 0 10px 24px rgba(0,0,0,.28);
-      position:relative;
-      overflow:hidden;
-    }
-    .session-card:before{
-      content:"";
-      position:absolute; inset:-2px;
-      background: radial-gradient(500px 120px at 10% 0%, rgba(0,168,132,.22), transparent 55%),
-                  radial-gradient(500px 120px at 90% 0%, rgba(36,211,102,.16), transparent 55%);
-      opacity:.9;
-      pointer-events:none;
-    }
-    .session-card:hover{ transform: translateY(-1px); }
-    .session-icon{
-      width:46px; height:46px; border-radius:14px;
+    .brand-badge{
+      width:34px; height:34px; border-radius:12px;
       background: rgba(0,168,132,.18);
+      border:1px solid rgba(0,168,132,.22);
       display:flex; align-items:center; justify-content:center;
-      border:1px solid rgba(0,168,132,.25);
-      flex-shrink:0;
-      position:relative;
-      z-index:1;
-    }
-    .liveDot{
-      width:10px; height:10px; border-radius:99px;
-      background: var(--primary2);
-      position:absolute; right:-2px; top:-2px;
-      box-shadow: 0 0 0 6px rgba(36,211,102,.14);
-      animation: pulse 1.3s infinite;
-    }
-    @keyframes pulse{ 0%,100%{transform:scale(.95); opacity:.6} 50%{transform:scale(1.25); opacity:1} }
-    .session-meta{
-      display:flex; flex-direction:column;
-      min-width:0;
-      position:relative;
-      z-index:1;
-    }
-    .session-name{
+      color: var(--primary);
       font-weight:800;
-      letter-spacing:.2px;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
-    .session-sub{
-      margin-top:4px;
-      color: rgba(134,150,160,.92);
-      font-size: 12px;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    .brand-title{
+      display:flex; flex-direction:column; line-height:1.1;
     }
-    .session-chip{
-      margin-left:auto;
-      padding: 6px 10px;
-      border-radius:999px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.04);
-      color: rgba(233,237,239,.92);
-      font-size:12px;
-      font-weight:700;
-      position:relative;
-      z-index:1;
+    .brand-title b{ font-size:14px; }
+    .brand-title span{ font-size:11px; color: var(--text-muted); }
+
+    #session-list{
+      width:100%; max-width:520px;
+      display:flex; flex-direction:column;
+      gap:10px; padding:14px 0 40px;
     }
 
-    /* ---------------- App ---------------- */
+    .session-card{
+      background: linear-gradient(180deg, rgba(17,27,33,.96), rgba(15,26,32,.96));
+      border:1px solid rgba(255,255,255,.06);
+      border-radius:16px;
+      padding:14px;
+      display:flex; align-items:center; gap:12px;
+      cursor:pointer;
+      box-shadow: 0 8px 20px rgba(0,0,0,.25);
+      transition: transform .14s ease, border-color .14s ease;
+    }
+    .session-card:active{ transform: scale(.99); }
+    .session-ico{
+      width:46px; height:46px; border-radius:16px;
+      background: rgba(0,168,132,.16);
+      border: 1px solid rgba(0,168,132,.20);
+      display:flex; align-items:center; justify-content:center;
+      position:relative;
+    }
+    .pulse{
+      position:absolute; right:-2px; bottom:-2px;
+      width:12px; height:12px; border-radius:50%;
+      background: #32d074;
+      box-shadow: 0 0 0 0 rgba(50,208,116,.55);
+      animation: pulse 1.6s infinite;
+      border:2px solid var(--bg-panel);
+    }
+    @keyframes pulse{
+      0%{ box-shadow: 0 0 0 0 rgba(50,208,116,.55); }
+      70%{ box-shadow: 0 0 0 10px rgba(50,208,116,0); }
+      100%{ box-shadow: 0 0 0 0 rgba(50,208,116,0); }
+    }
+    .session-meta{ flex:1; min-width:0; }
+    .session-meta .num{
+      font-weight:700; font-size:14px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .session-meta .sub{
+      font-size:11px; color: var(--text-muted);
+      margin-top:2px;
+    }
+    .enter{
+      font-size:12px; color: rgba(233,237,239,.9);
+      background: rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.06);
+      padding:8px 10px; border-radius:12px;
+    }
+
+    /* ---------------- App (Chats/Groups/Status) ---------------- */
     #app-view{ display:none; width:100%; height:100%; position:relative; }
     .sidebar{
       width:100%; height:100%;
       display:flex; flex-direction:column;
       background: var(--bg-panel);
-      border-right: 1px solid var(--border);
     }
     .app-header{
-      height: 60px;
-      background: var(--bg-panel);
+      height:64px; background: rgba(17,27,33,.92);
+      backdrop-filter: blur(10px);
       display:flex; justify-content:space-between; align-items:center;
-      padding: 0 15px;
-      border-bottom:1px solid var(--border);
+      padding:0 14px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
     }
-    .app-header .logoText{
-      font-weight:900; font-size:18px; color: rgba(233,237,239,.92);
-      display:flex; align-items:center; gap:10px;
+    .app-header .title{
+      font-weight:800; letter-spacing:.2px;
     }
-    .app-header .logoText .mini{
-      width:26px; height:26px; border-radius:8px;
-      background: rgba(0,168,132,.16);
-      border:1px solid rgba(0,168,132,.25);
-      display:flex; align-items:center; justify-content:center;
-      overflow:hidden;
-    }
-    .app-header .logoText .mini img{ width:18px; height:18px; object-fit:contain; }
-
-    .exitBtn{
-      background:none; border:none; color:#fb7185;
-      font-weight:800; cursor:pointer;
-      padding:10px 10px;
+    .app-header button{
+      background: rgba(241,92,109,.12);
+      border: 1px solid rgba(241,92,109,.20);
+      color: #f15c6d;
       border-radius:12px;
+      padding:8px 10px;
+      cursor:pointer;
     }
-    .exitBtn:hover{ background: rgba(251,113,133,.10); }
 
     .tabs{
       display:flex;
-      background: var(--bg-panel);
-      border-bottom:1px solid var(--border);
+      background: rgba(17,27,33,.92);
+      border-bottom: 1px solid rgba(255,255,255,.06);
     }
     .tab-btn{
-      flex:1; padding: 12px;
+      flex:1; padding:12px;
       border:none; background:none;
       color: var(--text-muted);
+      font-weight:700;
+      cursor:pointer;
       border-bottom: 3px solid transparent;
-      font-weight:700; cursor:pointer;
     }
-    .tab-btn.active{ color: var(--primary2); border-bottom-color: var(--primary2); }
+    .tab-btn.active{
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
 
-    .chat-list{ flex:1; overflow-y:auto; padding-bottom: 100px; }
-    .chat-item{
-      display:flex; padding: 12px 15px;
-      align-items:center; gap: 14px;
-      border-bottom:1px solid var(--border);
-      cursor:pointer; transition:.18s;
+    .banner{
+      display:none;
+      margin:10px 12px 0;
+      padding:10px 12px;
+      border-radius:14px;
+      background: rgba(0,168,132,.12);
+      border: 1px solid rgba(0,168,132,.18);
+      color: rgba(233,237,239,.95);
+      font-size:12px;
     }
-    .chat-item:hover{ background:#172229; }
+    .banner.show{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .banner button{
+      background: rgba(0,168,132,.18);
+      color: rgba(233,237,239,.95);
+      border: 1px solid rgba(0,168,132,.22);
+      border-radius:12px;
+      padding:6px 10px;
+      cursor:pointer;
+      font-weight:700;
+      font-size:12px;
+    }
+
+    .chat-list{
+      flex:1;
+      overflow-y:auto;
+      padding: 6px 0 90px;
+    }
+    .chat-item{
+      display:flex;
+      padding:12px 14px;
+      align-items:center;
+      gap:12px;
+      border-bottom: 1px solid rgba(255,255,255,.05);
+      cursor:pointer;
+      transition: background .14s ease;
+    }
+    .chat-item:hover{ background: rgba(255,255,255,.03); }
     .avatar{
       width:46px; height:46px;
       border-radius:50%;
       background:#6a7f8a;
       object-fit:cover;
       flex-shrink:0;
-      border:1px solid rgba(255,255,255,.10);
     }
-    .chat-meta{ flex:1; min-width:0; }
-    .chat-name{
-      font-weight:800;
+    .chat-mid{ flex:1; min-width:0; }
+    .chat-mid .name{
+      font-weight:800; font-size:14px;
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
-    .chat-sub{
-      font-size:12px;
-      color: rgba(134,150,160,.92);
+    .chat-mid .sub{
+      margin-top:2px;
+      font-size:12px; color: var(--text-muted);
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-      margin-top:4px;
     }
     .chat-right{
       display:flex; flex-direction:column; align-items:flex-end; gap:6px;
-      color: rgba(134,150,160,.92);
-      font-size:11px;
+    }
+    .badge{
+      min-width:20px; height:20px;
+      border-radius:999px;
+      background: var(--primary);
+      color:#072b23;
+      display:none;
+      align-items:center; justify-content:center;
+      font-size:12px;
+      font-weight:900;
+      padding:0 6px;
+    }
+    .badge.show{ display:flex; }
+    .tiny-time{
+      font-size:10px; color: rgba(134,150,160,.95);
     }
 
-    /* ---------------- Chat window ---------------- */
+    /* ---------------- Chat Window ---------------- */
     #chat-window{
       position:absolute; top:0; left:0;
       width:100%; height:100%;
-      background:#0b141a;
+      background: var(--bg-dark);
       z-index:50;
       display:flex; flex-direction:column;
       transform: translateX(100%);
-      transition: transform .28s cubic-bezier(0.2, 0.8, 0.2, 1);
+      transition: transform .28s cubic-bezier(.2,.8,.2,1);
     }
     .chat-nav{
-      height:60px;
-      background: var(--bg-panel);
+      height:64px;
+      background: rgba(17,27,33,.92);
+      backdrop-filter: blur(10px);
       display:flex; align-items:center;
-      padding: 0 10px;
+      padding:0 10px;
       gap:10px;
-      border-bottom:1px solid var(--border);
+      border-bottom: 1px solid rgba(255,255,255,.06);
     }
-    .navBtn{
-      font-size:22px;
-      background:none; border:none;
-      color: rgba(233,237,239,.95);
+    .chat-nav button{
+      font-size:22px; background:none; border:none; color:white;
       cursor:pointer;
-      padding:10px 10px;
-      border-radius:12px;
     }
-    .navBtn:hover{ background: rgba(255,255,255,.06); }
-    .chat-title{
+    .chat-nav .head{
+      flex:1; min-width:0;
       display:flex; flex-direction:column;
-      min-width:0;
+      line-height:1.1;
     }
-    .chat-title .name{
-      font-weight:900; font-size:15px;
+    .chat-nav .head b{
+      font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .chat-nav .head span{
+      font-size:11px; color: var(--text-muted);
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
-    .chat-title .jid{
-      font-size:11px;
-      color: rgba(134,150,160,.92);
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    .info-btn{
+      width:38px; height:38px; border-radius:12px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.06);
+      color: rgba(233,237,239,.95);
+      display:flex; align-items:center; justify-content:center;
+      cursor:pointer;
+      font-weight:900;
     }
 
     .messages-area{
       flex:1; overflow-y:auto;
-      padding: 14px 12px 50px;
-      display:flex; flex-direction:column;
-      gap: 6px;
+      padding: 14px 12px 70px;
+      display:flex; flex-direction:column; gap:6px;
       background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
-      opacity:.98;
+      background-size: 420px;
+      opacity:.97;
     }
 
-    /* ---------------- Bubbles ---------------- */
     .msg{
-      max-width: 82%;
-      padding: 7px 9px;
-      border-radius: 8px;
+      max-width: 84%;
+      padding: 6px 8px;
+      border-radius: 10px;
       font-size: 14.5px;
-      position:relative;
+      position: relative;
       box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
       color: #e9edef;
-      line-height:1.4;
+      line-height: 1.4;
       word-wrap: break-word;
-      display:flex;
-      flex-direction:column;
-      border:1px solid rgba(255,255,255,.08);
-      backdrop-filter: blur(6px);
+      display:flex; flex-direction:column;
     }
-    .msg.sent{ align-self:flex-end; background: rgba(0,92,75,.95); border-top-right-radius:0; }
-    .msg.rec{ align-self:flex-start; background: rgba(32,44,51,.94); border-top-left-radius:0; }
+    .msg.sent{ align-self:flex-end; background: var(--bubble-sent); border-top-right-radius: 4px; }
+    .msg.rec{ align-self:flex-start; background: var(--bubble-rec); border-top-left-radius: 4px; }
 
-    /* stickers (visible fix) */
-    .msg.sticker{
-      background: transparent !important;
-      box-shadow:none !important;
-      border:none !important;
-      padding:0 !important;
-    }
-    .msg.sticker .time{ text-shadow: 1px 1px 2px black; }
-    img.sticker-img{
-      width: 160px;
-      height:auto;
-      object-fit:contain;
-      display:block;
-      filter: drop-shadow(0 6px 18px rgba(0,0,0,.35));
-    }
+    .msg.sticker{ background: transparent !important; box-shadow:none !important; padding:0; }
+    .sender-name{ font-size:12px; color:#f2c94c; font-weight:800; margin-bottom:2px; }
+    .time{ font-size:10px; color: rgba(255,255,255,.60); align-self:flex-end; margin-top:4px; }
 
-    .sender-name{
-      font-size:12px;
-      color:#f2c94c;
-      font-weight:800;
-      margin-bottom:2px;
-    }
-    .time{
-      font-size:10px;
-      color: rgba(255,255,255,.6);
-      align-self:flex-end;
-      margin-top:4px;
-    }
-
-    /* reply context */
     .reply-box{
-      background: rgba(0,0,0,0.18);
-      border-left: 4px solid var(--primary2);
+      background: rgba(0,0,0,0.16);
+      border-left: 4px solid var(--primary);
       border-radius: 6px;
       padding: 6px 8px;
       margin-bottom: 6px;
       font-size: 12px;
-      display:flex;
-      flex-direction:column;
+      display:flex; flex-direction:column;
+      cursor:pointer;
     }
-    .reply-sender{ color: var(--primary2); font-weight:900; font-size:11px; margin-bottom:2px; }
-    .reply-text{ color: rgba(255,255,255,0.75); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .reply-sender{ color: var(--primary); font-weight:900; font-size:11px; margin-bottom:2px; }
+    .reply-text{ color: rgba(255,255,255,.72); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-    /* Media placeholders (WhatsApp-style download overlay) */
-    .mediaBox{
-      position:relative;
-      border-radius:10px;
-      overflow:hidden;
-      border:1px solid rgba(255,255,255,.08);
-      background: rgba(255,255,255,.04);
-      max-width: 280px;
+    /* Media placeholders like WA */
+    .media-wrap{
+      position:relative; border-radius:10px; overflow:hidden;
+      border: 1px solid rgba(255,255,255,.06);
+      background: rgba(255,255,255,.06);
     }
-    .mediaBox img, .mediaBox video{ width:100%; display:block; }
-    .mediaBlur{
-      height: 180px;
-      background: linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
-      filter: blur(0px);
-      display:flex; align-items:center; justify-content:center;
-      color: rgba(233,237,239,.75);
-      font-weight:800;
-    }
-    .dlOverlay{
+    img.chat-img{ width: 240px; max-width: 100%; display:block; border-radius:10px; }
+    img.sticker-img{ width: 140px; height:auto; object-fit:contain; display:block; }
+
+    .media-overlay{
       position:absolute; inset:0;
       display:flex; align-items:center; justify-content:center;
-      background: rgba(0,0,0,.18);
-      backdrop-filter: blur(4px);
-      gap:10px;
-    }
-    .dlBtn{
-      width:46px; height:46px;
-      border-radius:999px;
-      border:1px solid rgba(255,255,255,.16);
-      background: rgba(17,27,33,.75);
-      display:flex; align-items:center; justify-content:center;
+      background: rgba(0,0,0,.35);
+      backdrop-filter: blur(3px);
       cursor:pointer;
-      box-shadow: 0 12px 24px rgba(0,0,0,.30);
-      user-select:none;
-      font-size:20px;
     }
-    .dlBtn:hover{ transform: scale(1.03); }
-
-    /* Audio player WhatsApp-ish */
-    .wa-audio{
-      display:flex; align-items:center; gap:10px;
-      width: 240px;
-      background: rgba(0,0,0,0.12);
-      border-radius: 10px;
-      padding: 8px 8px;
-      border:1px solid rgba(255,255,255,.08);
-    }
-    .audBtn{
-      width:40px; height:40px; border-radius:999px;
-      background: rgba(106,127,138,.55);
+    .dl-btn{
+      width:52px; height:52px; border-radius:50%;
+      background: rgba(0,0,0,.35);
+      border: 1px solid rgba(255,255,255,.18);
       display:flex; align-items:center; justify-content:center;
+      color:white; font-size:20px; font-weight:900;
+    }
+
+    /* Audio WA-like */
+    .wa-audio{
+      width: 260px; max-width: 100%;
+      padding:10px 10px;
+      border-radius: 12px;
+      background: rgba(0,0,0,.14);
+      border: 1px solid rgba(255,255,255,.06);
+      display:flex; align-items:center; gap:10px;
+    }
+    .wa-audio .pbtn{
+      width:44px; height:44px; border-radius:50%;
+      background: rgba(255,255,255,.10);
+      border: 1px solid rgba(255,255,255,.10);
+      display:flex; align-items:center; justify-content:center;
+      font-weight:900;
       cursor:pointer;
       flex-shrink:0;
-      border:1px solid rgba(255,255,255,.12);
     }
-    .audMeta{ flex:1; display:flex; flex-direction:column; gap:6px; }
-    .bar{ height:4px; border-radius:999px; background: rgba(255,255,255,.22); overflow:hidden; }
-    .bar > i{ display:block; height:100%; width:0%; background: rgba(36,211,102,.85); }
-    .audRow{ display:flex; justify-content:space-between; font-size:10px; color: rgba(134,150,160,.95); }
+    .wa-audio .meta{ flex:1; min-width:0; }
+    .wa-audio .bar{
+      height:4px; border-radius:999px;
+      background: rgba(255,255,255,.18);
+      overflow:hidden;
+      margin-top:6px;
+    }
+    .wa-audio .bar i{
+      display:block; height:100%;
+      width:0%;
+      background: rgba(0,168,132,.95);
+    }
 
-    /* Secure footer */
     .secure-footer{
-      text-align:center;
-      font-size:10px;
-      color: var(--text-muted);
-      background: rgba(11,20,26,.92);
+      text-align:center; font-size:10px; color: var(--text-muted);
+      background: rgba(11,20,26,0.92);
       padding: 12px 14px;
-      margin: 18px auto 6px;
+      margin: 14px auto 0;
       border-radius: 999px;
       display:flex; align-items:center; justify-content:center; gap:6px;
       width: fit-content;
-      border:1px solid rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.06);
     }
 
     /* Lightbox */
@@ -475,41 +458,36 @@
     #lightbox img{ max-width:100%; max-height:100%; }
     .lb-close{ position:absolute; top:20px; left:20px; color:white; font-size:30px; cursor:pointer; }
 
-    /* Info Drawer */
-    #infoDrawer{
-      position:fixed; top:0; right:0; height:100%; width:min(360px, 92vw);
-      background: rgba(17,27,33,.96);
-      border-left:1px solid rgba(255,255,255,.10);
-      z-index:120;
-      transform: translateX(105%);
-      transition: transform .22s ease;
-      display:flex; flex-direction:column;
-      box-shadow: -20px 0 40px rgba(0,0,0,.45);
-      backdrop-filter: blur(12px);
+    /* Tiny toast (non-blocking) */
+    #toast{
+      position: fixed; left:50%; bottom:18px;
+      transform: translateX(-50%) translateY(20px);
+      opacity:0;
+      background: rgba(17,27,33,.92);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 14px;
+      padding: 10px 12px;
+      color: rgba(233,237,239,.95);
+      font-size: 12px;
+      display:flex; align-items:center; gap:10px;
+      box-shadow: var(--shadow);
+      z-index: 120;
+      transition: opacity .18s ease, transform .18s ease;
+      max-width: 92vw;
     }
-    #infoDrawer.open{ transform: translateX(0); }
-    .infoHead{
-      height:60px; display:flex; align-items:center; justify-content:space-between;
-      padding: 0 12px;
-      border-bottom:1px solid rgba(255,255,255,.08);
+    #toast.show{ opacity:1; transform: translateX(-50%) translateY(0); }
+    #toast b{ color: var(--primary); }
+    #toast button{
+      margin-left:auto;
+      background: rgba(0,168,132,.14);
+      border: 1px solid rgba(0,168,132,.18);
+      color: rgba(233,237,239,.95);
+      border-radius: 12px;
+      padding: 6px 10px;
+      cursor:pointer;
+      font-weight:800;
+      font-size:12px;
     }
-    .infoBody{ padding:16px; overflow:auto; }
-    .infoCard{
-      background: rgba(255,255,255,.04);
-      border:1px solid rgba(255,255,255,.08);
-      border-radius: 16px;
-      padding: 14px;
-    }
-    .infoAvatar{
-      width:88px; height:88px; border-radius:999px;
-      border:1px solid rgba(255,255,255,.12);
-      object-fit:cover;
-      display:block;
-      margin: 6px auto 12px;
-    }
-    .infoName{ text-align:center; font-weight:900; font-size:16px; }
-    .infoJid{ text-align:center; margin-top:6px; color: rgba(134,150,160,.95); font-size:12px; word-break:break-all; }
-
   </style>
 </head>
 
@@ -517,48 +495,40 @@
 
   <!-- Splash -->
   <div id="splash">
-    <div class="wa-logo">
-      <img src="/pic.png" alt="logo">
-    </div>
-    <div class="splash-title">WHATSAPP VIP</div>
-    <div class="dots">
-      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-      <span style="margin-left:8px;">Loading…</span>
+    <div class="splash-wrap">
+      <div class="wa-logo">
+        <div class="circle">
+          <img src="/pic.png" alt="logo">
+        </div>
+        <div class="tail"></div>
+      </div>
+      <div class="splash-title">WHATSAPP VIP</div>
+      <div class="splash-sub">Loading sessions & syncing chats…</div>
+      <div class="loader"></div>
     </div>
   </div>
 
-  <!-- Overlay Loader -->
-  <div id="overlayLoader">
-    <div class="overlayBox">
-      <div class="wa-logo" style="width:78px;height:78px;box-shadow:0 0 0 8px rgba(0,168,132,.10), 0 14px 30px rgba(0,0,0,.55);">
-        <img src="/pic.png" alt="logo" style="width:44px;height:44px;">
+  <!-- Home -->
+  <div id="home-view">
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-badge">W</div>
+        <div class="brand-title">
+          <b>WhatsApp VIP</b>
+          <span>Choose a live session</span>
+        </div>
       </div>
-      <div class="overlayText" id="overlayText">Loading…</div>
-      <div class="overlaySub" id="overlaySub">Please wait</div>
-      <div class="dots" style="margin-top:2px;">
-        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-      </div>
-    </div>
-  </div>
-
-  <!-- HOME -->
-  <div id="home-view" style="display:none;">
-    <div class="home-title">
-      WHATSAPP VIP
-      <span class="badge">LIVE</span>
+      <div style="color:var(--text-muted); font-size:12px;">● Live</div>
     </div>
     <div id="session-list"></div>
   </div>
 
-  <!-- APP -->
+  <!-- App -->
   <div id="app-view">
     <div class="sidebar">
       <div class="app-header">
-        <div class="logoText">
-          <span class="mini"><img src="/pic.png" alt="mini"></span>
-          WhatsApp
-        </div>
-        <button class="exitBtn" onclick="location.reload()">EXIT</button>
+        <div class="title">WhatsApp</div>
+        <button onclick="exitApp()">EXIT</button>
       </div>
 
       <div class="tabs">
@@ -567,607 +537,665 @@
         <button class="tab-btn" onclick="switchTab('status', event)">Status</button>
       </div>
 
+      <div id="top-banner" class="banner">
+        <span id="banner-text">New updates</span>
+        <button onclick="clearBanner()">OK</button>
+      </div>
+
       <div class="chat-list" id="chat-list-box"></div>
     </div>
 
-    <!-- CHAT WINDOW -->
     <div id="chat-window">
       <div class="chat-nav">
-        <button class="navBtn" onclick="closeChat()">←</button>
+        <button onclick="closeChat()">←</button>
         <img id="header-avatar" class="avatar" src="">
-        <div class="chat-title">
-          <div id="header-name" class="name">User</div>
-          <div id="header-jid" class="jid">—</div>
+        <div class="head">
+          <b id="header-name">User</b>
+          <span id="header-sub">Online</span>
         </div>
-        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
-          <button class="navBtn" onclick="toggleInfo()">ⓘ</button>
-        </div>
+        <div class="info-btn" onclick="showInfo()">i</div>
       </div>
       <div class="messages-area" id="msg-box"></div>
     </div>
   </div>
 
-  <!-- INFO DRAWER -->
-  <div id="infoDrawer">
-    <div class="infoHead">
-      <button class="navBtn" onclick="toggleInfo()">←</button>
-      <div style="font-weight:900;">Chat Info</div>
-      <div style="width:44px;"></div>
-    </div>
-    <div class="infoBody">
-      <div class="infoCard">
-        <img id="infoAvatar" class="infoAvatar" src="/pic.png" alt="avatar">
-        <div id="infoName" class="infoName">—</div>
-        <div id="infoJid" class="infoJid">—</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- LIGHTBOX -->
   <div id="lightbox">
     <div class="lb-close" onclick="document.getElementById('lightbox').style.display='none'">×</div>
     <img id="lb-img" src="">
   </div>
 
-  <script>
-    /* -------------------- Local DB (IndexedDB) -------------------- */
-    const dbName="WA_Pro_DB";
-    let db;
-    const req=indexedDB.open(dbName,2);
-    req.onupgradeneeded=e=>{
-      db=e.target.result;
-      if(!db.objectStoreNames.contains("media")) db.createObjectStore("media",{keyPath:"id"});
-      if(!db.objectStoreNames.contains("messages")) db.createObjectStore("messages",{keyPath:"k"});
-      if(!db.objectStoreNames.contains("chatlist")) db.createObjectStore("chatlist",{keyPath:"k"});
+  <div id="toast">
+    <span id="toast-text">New message</span>
+    <button onclick="hideToast()">View</button>
+  </div>
+
+<script>
+/* ---------------- IndexedDB (fast cache) ---------------- */
+const DB_NAME = "WA_VIP_DB";
+let db = null;
+
+function openDB(){
+  return new Promise((resolve) => {
+    const req = indexedDB.open(DB_NAME, 2);
+    req.onupgradeneeded = (e) => {
+      db = e.target.result;
+      if(!db.objectStoreNames.contains("media")) db.createObjectStore("media", { keyPath:"id" });
+      if(!db.objectStoreNames.contains("chats")) db.createObjectStore("chats", { keyPath:"key" }); // key = bot|type
+      if(!db.objectStoreNames.contains("messages")) db.createObjectStore("messages", { keyPath:"key" }); // key = bot|chat|message_id
+      if(!db.objectStoreNames.contains("unread")) db.createObjectStore("unread", { keyPath:"key" }); // key = bot|chat
     };
-    req.onsuccess=e=>{db=e.target.result;};
+    req.onsuccess = (e) => { db = e.target.result; resolve(true); };
+    req.onerror = () => resolve(false);
+  });
+}
+function put(store, val){
+  return new Promise((resolve) => {
+    if(!db) return resolve(false);
+    const tx = db.transaction([store], "readwrite");
+    tx.objectStore(store).put(val);
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => resolve(false);
+  });
+}
+function get(store, key){
+  return new Promise((resolve) => {
+    if(!db) return resolve(null);
+    const tx = db.transaction([store], "readonly");
+    const req = tx.objectStore(store).get(key);
+    req.onsuccess = (e) => resolve(e.target.result || null);
+    req.onerror = () => resolve(null);
+  });
+}
+function getAll(store){
+  return new Promise((resolve) => {
+    if(!db) return resolve([]);
+    const tx = db.transaction([store], "readonly");
+    const req = tx.objectStore(store).getAll();
+    req.onsuccess = (e) => resolve(e.target.result || []);
+    req.onerror = () => resolve([]);
+  });
+}
 
-    function saveStore(store, obj){
-      if(!db) return;
-      const tx=db.transaction([store],"readwrite");
-      tx.objectStore(store).put(obj);
-    }
-    function getStore(store, key, cb){
-      if(!db) return cb(null);
-      const tx=db.transaction([store],"readonly");
-      const r=tx.objectStore(store).get(key);
-      r.onsuccess=()=>cb(r.result||null);
-      r.onerror=()=>cb(null);
-    }
-    function saveLocalMedia(id,c){ saveStore("media",{id,c}); }
-    function getLocalMedia(id,cb){ getStore("media", id, (r)=>cb(r ? r.c : null)); }
+/* ---------------- Existing media cache helpers ---------------- */
+function saveLocal(id,c){ if(db) db.transaction(["media"],"readwrite").objectStore("media").put({id,c}); }
+function getLocal(id,cb){ if(!db) return cb(null); db.transaction(["media"],"readonly").objectStore("media").get(id).onsuccess=e=>cb(e.target.result?e.target.result.c:null); }
 
-    function cacheMessages(bot, chat, msgs){
-      const k = `m:${bot}:${chat}`;
-      saveStore("messages",{k, t: Date.now(), msgs});
-    }
-    function getCachedMessages(bot, chat, cb){
-      const k = `m:${bot}:${chat}`;
-      getStore("messages", k, (r)=>cb(r ? r.msgs : null));
-    }
-    function cacheChatList(bot, list){
-      const k = `c:${bot}`;
-      saveStore("chatlist",{k, t: Date.now(), list});
-    }
-    function getCachedChatList(bot, cb){
-      const k = `c:${bot}`;
-      getStore("chatlist", k, (r)=>cb(r ? r.list : null));
-    }
+/* ---------------- State ---------------- */
+let currentBot = null;
+let allChats = [];
+let activeTab = 'chats';
+let activeChatID = null;
+let pollInterval = null;
+let knownMessageIDs = new Set();
+let unreadMap = new Map(); // chat_id => count
+let lastToastChat = null;
 
-    /* -------------------- State -------------------- */
-    let currentBot=null, allChats=[], activeTab='chats', activeChatID=null;
-    let pollInterval=null;
-    let knownMessageIDs = new Set();
+window.onload = async () => {
+  await openDB();
 
-    window.onload=()=>{
-      // splash 3 sec
-      setTimeout(()=>{
-        document.getElementById('splash').style.display='none';
-        document.getElementById('home-view').style.display='flex';
-        loadSessions();
-      }, 3000);
-    };
+  // splash 3s
+  setTimeout(() => {
+    document.getElementById('splash').style.display = 'none';
+  }, 3000);
 
-    function showOverlay(text, sub){
-      const o = document.getElementById("overlayLoader");
-      document.getElementById("overlayText").innerText = text || "Loading…";
-      document.getElementById("overlaySub").innerText = sub || "Please wait";
-      o.style.display="flex";
-    }
-    function hideOverlay(){ document.getElementById("overlayLoader").style.display="none"; }
+  loadSessions();
+  restoreUnread();
+};
 
-    /* -------------------- Helpers -------------------- */
-    function jidToNumber(jid){
-      // "923xx@s.whatsapp.net" -> "923xx"
-      if(!jid) return "";
-      const at = jid.indexOf("@");
-      return at > 0 ? jid.slice(0, at) : jid;
-    }
-    function isGroupJID(jid){ return (jid||"").includes("@g.us"); }
+function exitApp(){
+  currentBot=null;
+  activeChatID=null;
+  if(pollInterval) clearInterval(pollInterval);
+  document.getElementById('app-view').style.display='none';
+  document.getElementById('home-view').style.display='flex';
+  loadSessions();
+}
 
-    /* -------------------- Sessions -------------------- */
-    function loadSessions(){
-      fetch('/api/sessions')
-        .then(r=>r.json())
-        .then(res=>{
-          const box=document.getElementById('session-list');
-          box.innerHTML='';
-          // res expected: array of bot IDs
-          res.forEach(num=>{
-            const div=document.createElement("div");
-            div.className="session-card";
-            div.onclick=()=>startApp(String(num));
-            div.innerHTML=`
-              <div class="session-icon">
-                <span style="font-size:18px;">📱</span>
-                <span class="liveDot"></span>
-              </div>
-              <div class="session-meta">
-                <div class="session-name">${escapeHtml(num)}</div>
-                <div class="session-sub">Tap to open • Live session</div>
-              </div>
-              <div class="session-chip">OPEN</div>
-            `;
-            box.appendChild(div);
-          });
-        })
-        .catch(()=>{});
-    }
+function showToast(text, chatID){
+  lastToastChat = chatID || null;
+  document.getElementById('toast-text').innerHTML = text;
+  document.getElementById('toast').classList.add('show');
+  setTimeout(() => hideToast(), 4000);
+}
+function hideToast(){
+  document.getElementById('toast').classList.remove('show');
+}
+document.querySelector('#toast button').onclick = () => {
+  hideToast();
+  if(lastToastChat){
+    const c = allChats.find(x => x.id === lastToastChat);
+    if(c) openChat(c.id, c.name);
+  }
+};
 
-    async function startApp(id){
-      currentBot=id;
-      document.getElementById('home-view').style.display='none';
-      document.getElementById('app-view').style.display='block';
-      await loadChatsFast();
-    }
+/* ---------------- Banner ---------------- */
+function showBanner(msg){
+  const b = document.getElementById('top-banner');
+  document.getElementById('banner-text').innerText = msg;
+  b.classList.add('show');
+  setTimeout(() => b.classList.remove('show'), 5000);
+}
+function clearBanner(){ document.getElementById('top-banner').classList.remove('show'); }
 
-    /* -------------------- Chats (Fast: cache-first) -------------------- */
-    async function loadChatsFast(){
-      showOverlay("Loading chats…", "Fetching chat list");
-      const listBox=document.getElementById('chat-list-box');
-      listBox.innerHTML = "";
+/* ---------------- Sessions ---------------- */
+function loadSessions() {
+  fetch('/api/sessions').then(r=>r.json()).then(res=>{
+    const box=document.getElementById('session-list');
+    box.innerHTML='';
+    res.forEach(num=>{
+      box.innerHTML += `
+        <div class="session-card" onclick="startApp('${num}')">
+          <div class="session-ico">📱<div class="pulse"></div></div>
+          <div class="session-meta">
+            <div class="num">${num}</div>
+            <div class="sub">Tap to open chats</div>
+          </div>
+          <div class="enter">OPEN</div>
+        </div>`;
+    });
+  }).catch(()=>{
+    showBanner("Failed to load sessions (network).");
+  });
+}
 
-      // 1) cache instantly
-      getCachedChatList(currentBot, (cached)=>{
-        if(cached && cached.length){
-          allChats = cached;
-          renderList();
-        }
-      });
+async function startApp(id){
+  currentBot=id;
+  document.getElementById('home-view').style.display='none';
+  document.getElementById('app-view').style.display='block';
 
-      // 2) fetch network
-      try{
-        const res = await fetch(`/api/chats?bot_id=${encodeURIComponent(currentBot)}`, {cache:"no-store"});
-        allChats = await res.json();
-        cacheChatList(currentBot, allChats);
-        renderList();
-      }catch(e){
-        // keep cached if exists
-      } finally {
-        hideOverlay();
-      }
-    }
+  // Load cached chats instantly
+  await loadChatsFromCache();
+  renderList();
 
-    function switchTab(t, ev){
-      activeTab=t;
-      document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-      if(ev && ev.target) ev.target.classList.add('active');
+  // Then refresh from server in background
+  loadChatsFromServer();
+}
+
+/* ---------------- Chats cache ---------------- */
+async function loadChatsFromCache(){
+  const key = `${currentBot}|chats`;
+  const cached = await get("chats", key);
+  allChats = cached?.data || [];
+}
+
+async function saveChatsToCache(){
+  const key = `${currentBot}|chats`;
+  await put("chats", { key, data: allChats, updated_at: Date.now() });
+}
+
+async function loadChatsFromServer(){
+  try{
+    const res = await fetch(`/api/chats?bot_id=${encodeURIComponent(currentBot)}`);
+    const fresh = await res.json();
+    if(Array.isArray(fresh)){
+      allChats = fresh;
+      await saveChatsToCache();
       renderList();
     }
+  }catch(e){
+    showBanner("Using cached chats (server unreachable).");
+  }
+}
 
-    function renderList(){
-      const list=document.getElementById('chat-list-box');
-      list.innerHTML='';
-
-      if(activeTab === "status"){
-        list.innerHTML = `
-          <div style="padding:18px;color:rgba(134,150,160,.95);line-height:1.5;">
-            <div style="font-weight:900;color:rgba(233,237,239,.92);margin-bottom:8px;">Status (Coming)</div>
-            <div>UI ready ہے۔ بعد میں ہم status APIs connect کر دیں گے۔</div>
-          </div>`;
-        return;
-      }
-
-      const filtered = allChats.filter(c=>{
-        if(activeTab==='groups') return c.type==='group';
-        return c.type==='user';
-      });
-
-      filtered.forEach(c=>{
-        const aid=`av_${(c.id||"").replace(/[^a-zA-Z0-9]/g,'')}`;
-        const displayJID = c.id || "";
-        const number = jidToNumber(displayJID);
-        const subText = isGroupJID(displayJID) ? displayJID : number;
-
-        const row=document.createElement("div");
-        row.className="chat-item";
-        row.onclick=()=>openChat(c.id, c.name, aid);
-
-        row.innerHTML=`
-          <img id="${aid}" class="avatar" src="https://ui-avatars.com/api/?name=${encodeURIComponent(c.name||'User')}&background=0a8&color=fff">
-          <div class="chat-meta">
-            <div class="chat-name">${escapeHtml(c.name||c.id)}</div>
-            <div class="chat-sub">${escapeHtml(subText)}</div>
-          </div>
-          <div class="chat-right">
-            <div>${escapeHtml(c.type||'')}</div>
-          </div>
-        `;
-        list.appendChild(row);
-
-        // avatar fetch (your endpoint returns JSON {url})
-        fetch(`/api/avatar?bot_id=${encodeURIComponent(currentBot)}&chat_id=${encodeURIComponent(c.id)}`)
-          .then(r=>r.json())
-          .then(d=>{ if(d && d.url) document.getElementById(aid).src=d.url; })
-          .catch(()=>{});
-      });
+/* ---------------- Unread ---------------- */
+async function restoreUnread(){
+  const all = await getAll("unread");
+  all.forEach(x => {
+    const parts = (x.key || "").split("|");
+    if(parts.length === 2){
+      const chatID = parts[1];
+      unreadMap.set(chatID, x.count || 0);
     }
+  });
+}
+async function setUnread(botID, chatID, count){
+  unreadMap.set(chatID, count);
+  await put("unread", { key: `${botID}|${chatID}`, count, updated_at: Date.now() });
+}
+async function incUnread(botID, chatID){
+  const cur = unreadMap.get(chatID) || 0;
+  await setUnread(botID, chatID, cur+1);
+}
+async function clearUnread(botID, chatID){
+  await setUnread(botID, chatID, 0);
+}
 
-    /* -------------------- Chat open + Messages (cache-first) -------------------- */
-    async function openChat(cid, name, aid){
-      activeChatID = cid;
+/* ---------------- Tabs & list ---------------- */
+function switchTab(t, ev){
+  activeTab = t;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  if(ev && ev.target) ev.target.classList.add('active');
+  renderList();
+}
 
-      const headerName = document.getElementById('header-name');
-      const headerJid  = document.getElementById('header-jid');
-      const headerAvatar = document.getElementById('header-avatar');
+function renderList(){
+  const list = document.getElementById('chat-list-box');
+  list.innerHTML='';
 
-      headerName.innerText = name || cid;
-      headerJid.innerText = isGroupJID(cid) ? cid : jidToNumber(cid);
+  const filtered = allChats.filter(c=>{
+    if(activeTab==='groups') return c.type==='group';
+    if(activeTab==='status') return c.type==='status'; // اگر backend نے status chats list میں add کی
+    return c.type==='user';
+  });
 
-      const src = (document.getElementById(aid) ? document.getElementById(aid).src : `https://ui-avatars.com/api/?name=${encodeURIComponent(name||'User')}`);
-      headerAvatar.src = src;
+  if(filtered.length === 0){
+    list.innerHTML = `<div style="padding:18px;color:var(--text-muted);font-size:12px;">
+      No items. (Tab: ${activeTab})
+    </div>`;
+    return;
+  }
 
-      // info drawer data
-      document.getElementById("infoAvatar").src = src;
-      document.getElementById("infoName").innerText = name || cid;
-      document.getElementById("infoJid").innerText = isGroupJID(cid) ? cid : `+${jidToNumber(cid)}`;
+  filtered.forEach(c=>{
+    const aid = `av_${(c.id||'').replace(/[^a-zA-Z0-9]/g,'')}`;
+    const badgeCount = unreadMap.get(c.id) || 0;
 
-      const win=document.getElementById('chat-window');
-      win.style.transform='translateX(0)';
-
-      const box=document.getElementById('msg-box');
-      box.innerHTML='';
-
-      knownMessageIDs.clear();
-
-      // 1) show VIP loader
-      showOverlay("Loading chat…", "Restoring last messages");
-
-      // 2) render cached messages instantly (if exist)
-      getCachedMessages(currentBot, cid, (cached)=>{
-        if(cached && cached.length){
-          box.innerHTML="";
-          cached.forEach(m=>{ knownMessageIDs.add(m.message_id); appendMessage(box, m); });
-          addFooterIfMissing(box);
-          box.scrollTop = box.scrollHeight;
-        }
-      });
-
-      // 3) network fetch + merge
-      await loadMessages(cid, box, true);
-
-      hideOverlay();
-
-      // polling: lightweight
-      if(pollInterval) clearInterval(pollInterval);
-      pollInterval = setInterval(() => loadMessages(cid, box, false), 4500);
-    }
-
-    async function loadMessages(cid, box, isFirstLoad){
-      if(activeChatID !== cid) return;
-
-      // keep payload smaller if backend supports
-      const url = `/api/messages?bot_id=${encodeURIComponent(currentBot)}&chat_id=${encodeURIComponent(cid)}&limit=80`;
-
-      try{
-        const res = await fetch(url, {cache:"no-store"});
-        const msgs = await res.json();
-
-        if(isFirstLoad && (!msgs || !msgs.length)){
-          box.innerHTML = `<div style="text-align:center;padding:40px;color:rgba(134,150,160,.95);">No messages</div>`;
-        }
-
-        // append only new
-        (msgs || []).forEach(m=>{
-          if(knownMessageIDs.has(m.message_id)) return;
-          knownMessageIDs.add(m.message_id);
-          appendMessage(box, m);
-        });
-
-        // cache last messages
-        cacheMessages(currentBot, cid, msgs || []);
-
-        addFooterIfMissing(box);
-
-        // scroll behavior
-        if(isFirstLoad){
-          box.scrollTop = box.scrollHeight;
-        } else {
-          // if user near bottom, auto scroll
-          const nearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 250;
-          if(nearBottom) box.scrollTop = box.scrollHeight;
-        }
-      }catch(e){
-        // keep old UI
-      }
-    }
-
-    function addFooterIfMissing(box){
-      if(box.querySelector(".secure-footer")) return;
-      const footer = document.createElement('div');
-      footer.className = "secure-footer";
-      footer.innerHTML = "🔒 End-to-end Encrypted";
-      box.appendChild(footer);
-    }
-
-    function closeChat(){
-      document.getElementById('chat-window').style.transform='translateX(100%)';
-      document.getElementById("infoDrawer").classList.remove("open");
-      if(pollInterval) clearInterval(pollInterval);
-      activeChatID = null;
-    }
-
-    function toggleInfo(){
-      const d = document.getElementById("infoDrawer");
-      d.classList.toggle("open");
-    }
-
-    /* -------------------- Message render (WhatsApp-ish) -------------------- */
-    function appendMessage(box, m){
-      const t = m.is_from_me ? 'sent' : 'rec';
-      const isSticker = !!m.is_sticker;
-
-      const time = new Date(m.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-      const nameTag = (!m.is_from_me && m.is_group) ? `<span class="sender-name">${escapeHtml(m.sender_name||'')}</span>` : '';
-
-      // Reply
-      let replyHtml = '';
-      if(m.quoted_msg){
-        replyHtml = `
-          <div class="reply-box">
-            <div class="reply-sender">${escapeHtml(m.quoted_sender || 'Unknown')}</div>
-            <div class="reply-text">${escapeHtml(m.quoted_msg)}</div>
-          </div>`;
-      }
-
-      let contentHtml = '';
-      if(isSticker){
-        contentHtml = renderSticker(m);
-      } else if(m.type === 'text'){
-        contentHtml = escapeHtml(m.content || '');
-      } else if(m.type === 'image'){
-        contentHtml = renderImage(m, false);
-      } else if(m.type === 'audio'){
-        contentHtml = renderAudio(m);
-      } else if(m.type === 'video'){
-        contentHtml = renderVideo(m);
-      } else {
-        contentHtml = `<a href="${escapeAttr(m.content||'#')}" target="_blank" style="color:#00a884;font-weight:800;">📄 Attachment</a>`;
-      }
-
-      const div = document.createElement('div');
-      div.className = isSticker ? `msg sticker ${t}` : `msg ${t}`;
-
-      if(isSticker){
-        div.innerHTML = `
-          ${contentHtml}
-          <span class="time">${escapeHtml(time)}</span>
-        `;
-      } else {
-        div.innerHTML = `
-          ${replyHtml}
-          ${nameTag}
-          ${contentHtml}
-          <span class="time">${escapeHtml(time)}</span>
-        `;
-      }
-
-      box.appendChild(div);
-    }
-
-    /* -------------------- Media (manual download, local cache) -------------------- */
-    function renderSticker(m){
-      // if content is direct url -> show. else waiting -> show download overlay.
-      const uid = m.message_id;
-      if(m.content === 'MEDIA_WAITING' || !m.content){
-        // show placeholder + download
-        setTimeout(()=>{
-          getLocalMedia(uid, (data)=>{
-            if(data){
-              const el = document.getElementById(`stk-${uid}`);
-              if(el) el.src = data;
-            }
-          });
-        },0);
-
-        return `
-          <div class="mediaBox" style="border:none;background:transparent;">
-            <div class="dlOverlay" style="border-radius:12px;">
-              <div class="dlBtn" onclick="downloadMedia('${uid}', 'stk-${uid}')">⬇</div>
-            </div>
-            <img id="stk-${uid}" class="sticker-img" src="https://upload.wikimedia.org/wikipedia/commons/b/b1/Loading_icon.gif" onclick="showLightbox(this.src)">
-          </div>
-        `;
-      }
-      return `<img class="sticker-img" src="${escapeAttr(m.content)}" onclick="showLightbox(this.src)">`;
-    }
-
-    function renderImage(m){
-      const uid=m.message_id;
-      if(m.content === 'MEDIA_WAITING' || !m.content){
-        // do NOT auto-download; show placeholder with download button
-        setTimeout(()=>{
-          getLocalMedia(uid, (data)=>{
-            if(data){
-              const el = document.getElementById(`img-${uid}`);
-              if(el) el.src = data;
-              const ov = document.getElementById(`ov-${uid}`);
-              if(ov) ov.style.display = "none";
-            }
-          });
-        },0);
-
-        return `
-          <div class="mediaBox">
-            <div class="mediaBlur">Photo</div>
-            <div class="dlOverlay" id="ov-${uid}">
-              <div class="dlBtn" onclick="downloadMedia('${uid}', 'img-${uid}', 'ov-${uid}')">⬇</div>
-            </div>
-            <img id="img-${uid}" class="chat-img" style="display:none;" onclick="showLightbox(this.src)">
-          </div>
-        `;
-      }
-
-      return `
-        <div class="mediaBox">
-          <img class="chat-img" src="${escapeAttr(m.content)}" onclick="showLightbox(this.src)">
+    list.innerHTML += `
+      <div class="chat-item" onclick="openChat('${escapeHTML(c.id)}','${escapeHTML(c.name)}')">
+        <img id="${aid}" class="avatar" src="https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=0b141a&color=e9edef">
+        <div class="chat-mid">
+          <div class="name">${escapeHTML(c.name)}</div>
+          <div class="sub">${escapeHTML(prettyChatSub(c))}</div>
         </div>
-      `;
-    }
-
-    function renderVideo(m){
-      const uid=m.message_id;
-      if(m.content === 'MEDIA_WAITING' || !m.content){
-        setTimeout(()=>{
-          getLocalMedia(uid, (data)=>{
-            if(data){
-              const v = document.getElementById(`vid-${uid}`);
-              if(v){ v.src = data; v.style.display="block"; }
-              const ov = document.getElementById(`vov-${uid}`);
-              if(ov) ov.style.display="none";
-            }
-          });
-        },0);
-
-        return `
-          <div class="mediaBox">
-            <div class="mediaBlur">Video</div>
-            <div class="dlOverlay" id="vov-${uid}">
-              <div class="dlBtn" onclick="downloadMedia('${uid}', 'vid-${uid}', 'vov-${uid}', true)">⬇</div>
-            </div>
-            <video id="vid-${uid}" style="display:none; width:100%; border-radius:10px;" controls></video>
-          </div>
-        `;
-      }
-      return `
-        <div class="mediaBox">
-          <video src="${escapeAttr(m.content)}" style="width:100%;border-radius:10px;" controls></video>
+        <div class="chat-right">
+          <div class="badge ${badgeCount>0?'show':''}">${badgeCount}</div>
         </div>
-      `;
+      </div>`;
+
+    // avatar background fetch
+    fetch(`/api/avatar?bot_id=${encodeURIComponent(currentBot)}&chat_id=${encodeURIComponent(c.id)}`)
+      .then(r=>r.json())
+      .then(d=>{ if(d && d.url) { const img = document.getElementById(aid); if(img) img.src = d.url; }})
+      .catch(()=>{});
+  });
+}
+
+function prettyChatSub(c){
+  // Prefer showing number instead of LID
+  // If chat id contains @s.whatsapp.net => show number part
+  if((c.id||'').includes('@')){
+    return (c.id.split('@')[0] || c.id);
+  }
+  return c.id || '';
+}
+
+function escapeHTML(s){
+  return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+/* ---------------- Messages caching ---------------- */
+function msgKey(bot, chat, mid){ return `${bot}|${chat}|${mid}`; }
+async function saveMessagesToCache(bot, chat, msgs){
+  for(const m of msgs){
+    if(!m || !m.message_id) continue;
+    await put("messages", { key: msgKey(bot, chat, m.message_id), bot, chat, m });
+  }
+}
+async function loadCachedMessages(bot, chat){
+  const all = await getAll("messages");
+  const out = all
+    .filter(x => x.bot === bot && x.chat === chat)
+    .map(x => x.m)
+    .sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
+  return out;
+}
+
+/* ---------------- Chat open & background sync ---------------- */
+async function openChat(cid, name){
+  activeChatID = cid;
+
+  document.getElementById('header-name').innerText = name;
+  document.getElementById('header-sub').innerText = cid.includes('@g.us') ? 'Group' : (cid.includes('@newsletter') ? 'Channel' : (cid.split('@')[0] || cid));
+  document.getElementById('header-avatar').src = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0b141a&color=e9edef`;
+
+  const win=document.getElementById('chat-window');
+  win.style.transform='translateX(0)';
+
+  // mark unread cleared
+  await clearUnread(currentBot, cid);
+  renderList();
+
+  const box = document.getElementById('msg-box');
+  box.innerHTML = '';
+
+  knownMessageIDs.clear();
+
+  // 1) Load cached messages instantly
+  const cached = await loadCachedMessages(currentBot, cid);
+  if(cached.length){
+    cached.forEach(m => knownMessageIDs.add(m.message_id));
+    renderMessagesInto(box, cached, true);
+  }else{
+    // show in-chat loading (VIP style)
+    box.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:34px;color:var(--text-muted);">
+        <div class="wa-logo" style="transform:scale(.75);">
+          <div class="circle"><img src="/pic.png" alt="logo"></div>
+          <div class="tail"></div>
+        </div>
+        <div style="font-size:12px;">Loading messages…</div>
+        <div class="loader" style="width:140px;"></div>
+      </div>`;
+  }
+
+  // 2) Background fetch from server (no blocking popup)
+  await syncMessagesFromServer(cid, box, true);
+
+  // 3) Start polling ONLY for open chat
+  if(pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(() => syncMessagesFromServer(cid, box, false), 3500);
+}
+
+async function syncMessagesFromServer(cid, box, first){
+  if(activeChatID !== cid) return;
+
+  try{
+    const res = await fetch(`/api/messages?bot_id=${encodeURIComponent(currentBot)}&chat_id=${encodeURIComponent(cid)}`);
+    const msgs = await res.json();
+
+    // old backend returns array; if future returns object, handle it too
+    const arr = Array.isArray(msgs) ? msgs : (msgs && msgs.messages ? msgs.messages : []);
+    if(!Array.isArray(arr)) return;
+
+    // Merge only new by message_id
+    const newOnes = [];
+    for(const m of arr){
+      if(!m || !m.message_id) continue;
+      if(knownMessageIDs.has(m.message_id)) continue;
+      knownMessageIDs.add(m.message_id);
+      newOnes.push(m);
     }
 
-    function renderAudio(m){
-      const uid = m.message_id;
+    if(newOnes.length){
+      // cache + render
+      await saveMessagesToCache(currentBot, cid, newOnes);
+      renderMessagesInto(box, newOnes, false);
 
-      // If waiting: show WhatsApp-ish player with download button
-      if(m.content === 'MEDIA_WAITING' || !m.content){
-        setTimeout(()=>{
-          getLocalMedia(uid, (data)=>{
-            if(data) setupAudio(uid, data);
-          });
-        },0);
-
-        return `
-          <div class="wa-audio" id="aud-${uid}">
-            <div class="audBtn" onclick="downloadAudio('${uid}')">⬇</div>
-            <div class="audMeta">
-              <div class="bar"><i id="bar-${uid}"></i></div>
-              <div class="audRow"><span>Voice</span><span>tap to download</span></div>
-            </div>
-            <audio id="audio-${uid}"></audio>
-          </div>
-        `;
-      }
-
-      return `<div class="wa-audio"><audio src="${escapeAttr(m.content)}" controls style="height:34px;width:100%;filter:invert(.92);"></audio></div>`;
+      // subtle banner
+      showBanner(`✅ ${newOnes.length} new message(s) in open chat`);
+      // keep scrolled bottom if user near bottom
+      const nearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 140;
+      if(nearBottom) box.scrollTop = box.scrollHeight;
+    }else if(first && !knownMessageIDs.size && arr.length){
+      // first load and we didn't have cache (loading screen was showing)
+      box.innerHTML = '';
+      arr.forEach(m => { if(m && m.message_id) knownMessageIDs.add(m.message_id); });
+      await saveMessagesToCache(currentBot, cid, arr);
+      renderMessagesInto(box, arr, true);
     }
 
-    async function downloadMedia(uid, elementID, overlayID, isVideo){
-      try{
-        showOverlay("Downloading…", "Media is being fetched");
-        const r = await fetch(`/api/media?msg_id=${encodeURIComponent(uid)}`, {cache:"no-store"});
-        const d = await r.json();
+  }catch(e){
+    if(first) showBanner("⚠️ Messages: using cache (server issue).");
+  }
+}
 
-        if(d && d.content){
-          saveLocalMedia(uid, d.content);
+function closeChat(){
+  document.getElementById('chat-window').style.transform='translateX(100%)';
+  if(pollInterval) clearInterval(pollInterval);
+  activeChatID = null;
+}
 
-          if(isVideo){
-            const v = document.getElementById(elementID);
-            if(v){ v.src = d.content; v.style.display="block"; }
-          } else {
-            const img = document.getElementById(elementID);
-            if(img){ img.src = d.content; img.style.display="block"; }
-          }
+/* ---------------- Render messages (WA-like) ---------------- */
+function renderMessagesInto(box, msgs, isFirstLoad){
+  if(isFirstLoad){
+    box.innerHTML = '';
+  }
 
-          if(overlayID){
-            const ov = document.getElementById(overlayID);
-            if(ov) ov.style.display = "none";
-          }
+  msgs.forEach(m=>{
+    const t = m.is_from_me ? 'sent' : 'rec';
+    const time = new Date(m.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    const nameTag = (!m.is_from_me && m.is_group) ? `<span class="sender-name">${escapeHTML(m.sender_name || '')}</span>` : '';
+
+    let replyHtml = '';
+    if(m.quoted_msg){
+      replyHtml = `
+        <div class="reply-box">
+          <div class="reply-sender">${escapeHTML(m.quoted_sender || 'Unknown')}</div>
+          <div class="reply-text">${escapeHTML(m.quoted_msg || '')}</div>
+        </div>`;
+    }
+
+    let content = '';
+    if(m.is_sticker){
+      content = renderImage(m, true);
+    } else if(m.type === 'text') {
+      content = escapeHTML(m.content || '');
+    } else if(m.type === 'image') {
+      content = renderImage(m, false);
+    } else if(m.type === 'audio') {
+      content = renderAudio(m);
+    } else if(m.type === 'video') {
+      content = renderVideo(m);
+    } else {
+      content = renderFile(m);
+    }
+
+    const div = document.createElement('div');
+    div.className = m.is_sticker ? `msg sticker ${t}` : `msg ${t}`;
+
+    if(m.is_sticker){
+      div.innerHTML = `${content}<span class="time" style="text-shadow:1px 1px 2px black;">${time}</span>`;
+    }else{
+      div.innerHTML = `${replyHtml}${nameTag}${content}<span class="time">${time}</span>`;
+    }
+
+    box.appendChild(div);
+  });
+
+  if(isFirstLoad){
+    const footer = document.createElement('div');
+    footer.className = "secure-footer";
+    footer.innerHTML = "🔒 End-to-end Encrypted";
+    box.appendChild(footer);
+    box.scrollTop = box.scrollHeight;
+  }
+}
+
+/* ---------------- Media (WA placeholder + on-demand download) ---------------- */
+function renderImage(m, isSticker){
+  const uid = m.message_id;
+  const className = isSticker ? "sticker-img" : "chat-img";
+
+  // New backend method: messages content is MEDIA_WAITING
+  if(m.content === 'MEDIA_WAITING'){
+    // show blurred placeholder with download button
+    setTimeout(()=>{
+      getLocal(uid, (data)=>{
+        if(data){
+          const el = document.getElementById(`img-${uid}`);
+          if(el) el.src = data;
+          const ov = document.getElementById(`ov-${uid}`);
+          if(ov) ov.style.display = 'none';
         }
-      } catch(e){
-      } finally {
-        hideOverlay();
+      });
+    },0);
+
+    return `
+      <div class="media-wrap">
+        <img id="img-${uid}" class="${className}" src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQwIiBoZWlnaHQ9IjE2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjQwIiBoZWlnaHQ9IjE2MCIgZmlsbD0iIzE1MjEyOSIgcng9IjEyIi8+PHRleHQgeD0iNTAiIHk9Ijg4IiBmaWxsPSIjODY5NmEwIiBmb250LXNpemU9IjEyIj5NZW
+RpYSBub3QgZG93bmxvYWRlZDwvdGV4dD48L3N2Zz4=" onclick="showLightbox(this.src)">
+        <div id="ov-${uid}" class="media-overlay" onclick="downloadMedia('${uid}', 'img-${uid}', 'ov-${uid}')">
+          <div class="dl-btn">⬇</div>
+        </div>
+      </div>`;
+  }
+
+  // already has url/base64
+  return `<div class="media-wrap">
+    <img src="${m.content}" class="${className}" onclick="showLightbox(this.src)">
+  </div>`;
+}
+
+function renderAudio(m){
+  const uid = m.message_id;
+
+  if(m.content === 'MEDIA_WAITING'){
+    // try cached
+    setTimeout(()=>{
+      getLocal(uid, (data)=>{
+        if(data) setupAudio(uid, data);
+      });
+    },0);
+
+    return `
+      <div id="aud-${uid}" class="wa-audio">
+        <div class="pbtn" onclick="downloadAudio('${uid}', this)">⬇</div>
+        <div class="meta">
+          <div style="font-size:12px;color:rgba(233,237,239,.92);font-weight:800;">Voice message</div>
+          <div class="bar"><i id="bar-${uid}"></i></div>
+        </div>
+        <audio id="audio-${uid}"></audio>
+      </div>`;
+  }
+
+  return `<div class="wa-audio">
+    <div class="pbtn" onclick="(function(){const a=document.getElementById('a-${uid}'); a.paused?a.play():a.pause();})()">▶</div>
+    <div class="meta">
+      <audio id="a-${uid}" src="${m.content}" controls style="height:32px; width:100%; filter:invert(.92);"></audio>
+    </div>
+  </div>`;
+}
+
+function renderVideo(m){
+  const uid = m.message_id;
+  if(m.content === 'MEDIA_WAITING'){
+    return `
+      <div class="media-wrap" style="width:260px;max-width:100%;">
+        <div style="padding:18px;color:var(--text-muted);font-size:12px;">Video not downloaded</div>
+        <div id="ov-${uid}" class="media-overlay" onclick="downloadVideo('${uid}', 'ov-${uid}')">
+          <div class="dl-btn">⬇</div>
+        </div>
+      </div>`;
+  }
+  return `<div class="media-wrap" style="width:260px;max-width:100%;">
+    <video src="${m.content}" style="width:100%;border-radius:10px;display:block;" controls></video>
+  </div>`;
+}
+
+function renderFile(m){
+  const uid = m.message_id;
+  if(m.content === 'MEDIA_WAITING'){
+    return `<div class="media-wrap" style="padding:12px 12px;border-radius:12px;">
+      <div style="color:rgba(233,237,239,.92);font-weight:800;">Attachment</div>
+      <div style="color:var(--text-muted);font-size:12px;margin-top:4px;">Tap to download</div>
+      <div style="margin-top:10px;">
+        <button onclick="downloadFile('${uid}')" style="background:rgba(0,168,132,.14);border:1px solid rgba(0,168,132,.18);color:#e9edef;border-radius:12px;padding:8px 10px;font-weight:900;cursor:pointer;">⬇ Download</button>
+      </div>
+    </div>`;
+  }
+  return `<a href="${m.content}" target="_blank" style="color:#00a884;font-weight:800;">📄 Attachment</a>`;
+}
+
+/* ---------------- Download handlers (calls /api/media) ---------------- */
+async function downloadMedia(uid, imgID, overlayID){
+  try{
+    const r = await fetch(`/api/media?msg_id=${encodeURIComponent(uid)}`);
+    const d = await r.json();
+    if(d && d.content){
+      saveLocal(uid, d.content);
+      const img = document.getElementById(imgID);
+      if(img) img.src = d.content;
+      const ov = document.getElementById(overlayID);
+      if(ov) ov.style.display='none';
+      showToast(`<b>Downloaded</b> image`, activeChatID);
+    }
+  }catch(e){
+    showBanner("❌ Failed to download media");
+  }
+}
+
+async function downloadAudio(uid, btn){
+  const audio = document.getElementById(`audio-${uid}`);
+  if(!audio) return;
+
+  // if audio not downloaded yet
+  if(!audio.src){
+    btn.innerText = "…";
+    try{
+      const r = await fetch(`/api/media?msg_id=${encodeURIComponent(uid)}`);
+      const d = await r.json();
+      if(d && d.content){
+        saveLocal(uid, d.content);
+        audio.src = d.content;
+        btn.innerText = "▶";
+        audio.play();
+      }else{
+        btn.innerText = "⬇";
       }
+    }catch(e){
+      btn.innerText = "⬇";
+      showBanner("❌ Failed to download audio");
     }
+  }else{
+    audio.paused ? audio.play() : audio.pause();
+  }
+}
 
-    async function downloadAudio(uid){
-      const audio = document.getElementById(`audio-${uid}`);
-      if(!audio) return;
-
-      if(!audio.src){
-        showOverlay("Downloading…", "Voice note");
-        try{
-          const r=await fetch(`/api/media?msg_id=${encodeURIComponent(uid)}`, {cache:"no-store"});
-          const d=await r.json();
-          if(d && d.content){
-            saveLocalMedia(uid, d.content);
-            setupAudio(uid, d.content);
-          }
-        }catch(e){
-        } finally {
-          hideOverlay();
-        }
-      } else {
-        audio.paused ? audio.play() : audio.pause();
+async function downloadVideo(uid, overlayID){
+  try{
+    const r = await fetch(`/api/media?msg_id=${encodeURIComponent(uid)}`);
+    const d = await r.json();
+    if(d && d.content){
+      // replace overlay with player
+      const ov = document.getElementById(overlayID);
+      if(ov && ov.parentElement){
+        ov.parentElement.innerHTML = `<video src="${d.content}" style="width:100%;border-radius:10px;display:block;" controls autoplay></video>`;
       }
+      showToast(`<b>Downloaded</b> video`, activeChatID);
     }
+  }catch(e){
+    showBanner("❌ Failed to download video");
+  }
+}
 
-    function setupAudio(uid, src){
-      const wrap = document.getElementById(`aud-${uid}`);
-      const audio = document.getElementById(`audio-${uid}`);
-      if(!wrap || !audio) return;
-
-      audio.src = src;
-
-      // replace download btn with play
-      wrap.querySelector(".audBtn").innerText = "▶";
-
-      wrap.querySelector(".audBtn").onclick = ()=>{
-        audio.paused ? audio.play() : audio.pause();
-      };
-
-      const bar = document.getElementById(`bar-${uid}`);
-      audio.ontimeupdate = ()=>{
-        if(!audio.duration || !bar) return;
-        const p = (audio.currentTime / audio.duration) * 100;
-        bar.style.width = p.toFixed(2) + "%";
-      };
+async function downloadFile(uid){
+  try{
+    const r = await fetch(`/api/media?msg_id=${encodeURIComponent(uid)}`);
+    const d = await r.json();
+    if(d && d.content){
+      // open in new tab (if url)
+      if(String(d.content).startsWith("http")){
+        window.open(d.content, "_blank");
+      }else{
+        // base64 file: open
+        window.open(d.content, "_blank");
+      }
+      showToast(`<b>Downloaded</b> file`, activeChatID);
     }
+  }catch(e){
+    showBanner("❌ Failed to download file");
+  }
+}
 
-    function showLightbox(src){
-      document.getElementById('lb-img').src=src;
-      document.getElementById('lightbox').style.display='flex';
-    }
+function setupAudio(uid, src){
+  const wrap = document.getElementById(`aud-${uid}`);
+  if(!wrap) return;
+  wrap.innerHTML = `<audio src="${src}" controls style="height:32px; width:100%; filter:invert(.92);"></audio>`;
+}
 
-    function escapeHtml(s){
-      return String(s||"")
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
-    }
-    function escapeAttr(s){ return escapeHtml(s); }
-  </script>
+function showLightbox(src){
+  document.getElementById('lb-img').src = src;
+  document.getElementById('lightbox').style.display = 'flex';
+}
+
+/* ---------------- Info panel placeholder ---------------- */
+function showInfo(){
+  // ابھی simple — بعد میں profile/api سے details لے لیں گے
+  showToast(`Info: <b>${escapeHTML(activeChatID || '')}</b>`, activeChatID);
+}
+
+/* ---------------- Background unread updates (simple) ----------------
+   ابھی backend میں global push نہیں ہے، تو ہم lightweight polling کرتے ہیں:
+   - open chat کیلئے already polling
+   - chat list کیلئے 10s میں refresh chats (اور اگر cached messages میں new آئے تو unread بڑھا دیں)
+*/
+setInterval(async () => {
+  if(!currentBot) return;
+  if(activeChatID) return; // open chat already syncing
+  // refresh chats silently
+  await loadChatsFromServer();
+}, 10000);
+
+</script>
+
 </body>
 </html>
