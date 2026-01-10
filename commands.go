@@ -65,15 +65,38 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 			return
 		}
 
-		// ✅ میسج کو بیک گراؤنڈ میں پروسیس کریں
+		// 🍃 [NEW] Save Live Message to Mongo (Background)
+		// یہ کوڈ نئے آنے والے میسجز کو ڈیٹا بیس میں ڈالے گا
+		go func() {
+			botID := getCleanID(botClient.Store.ID.User)
+			saveMessageToMongo(botClient, botID, v.Info.Chat.String(), v.Message, v.Info.IsFromMe, uint64(v.Info.Timestamp.Unix()))
+		}()
+
+		// ✅ میسج کو بیک گراؤنڈ میں پروسیس کریں (کمانڈز کے لیے)
 		go processMessage(botClient, v)
 
 	// 🔥🔥🔥 [NEW FIX] ہسٹری سنک کو بیک گراؤنڈ میں ہینڈل کریں 🔥🔥🔥
 	case *events.HistorySync:
 		go func() {
 			// یہ بہت ہیوی ڈیٹا ہوتا ہے، اسے یہاں خاموشی سے پروسیس ہونے دیں
-			// تاکہ آپ کا بوٹ کنیکٹ ہوتے ہی فوراً جواب دینا شروع کر دے
-			// fmt.Printf("📜 [HISTORY] Processing History Sync in background for %s...\n", botClient.Store.ID.User)
+			if v.Data == nil || len(v.Data.Conversations) == 0 {
+				return
+			}
+
+			botID := getCleanID(botClient.Store.ID.User)
+			// fmt.Printf("📜 [HISTORY] Syncing %d conversations for %s...\n", len(v.Data.Conversations), botID)
+
+			// ہسٹری کے میسجز کو لوپ کر کے مونگو میں ڈالیں
+			for _, conv := range v.Data.Conversations {
+				for _, histMsg := range conv.Messages {
+					msg := histMsg.Message
+					if msg == nil {
+						continue
+					}
+					// MongoDB Save Call
+					saveMessageToMongo(botClient, botID, conv.Id, msg, histMsg.Message.Key.FromMe, histMsg.Message.MessageTimestamp)
+				}
+			}
 		}()
 
 	case *events.Connected:
@@ -83,7 +106,6 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 		fmt.Printf("🔴 [LOGGED OUT] Bot %s\n", botClient.Store.ID.User)
 	}
 }
-
 
 
 func isKnownCommand(text string) bool {
@@ -256,7 +278,6 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 		}
 
 		// 🔍 C. Session Checks (Reply Handling)
-		// 🔍 C. Session Checks (Reply Handling)
 		extMsg := v.Message.GetExtendedTextMessage()
 		if extMsg != nil && extMsg.ContextInfo != nil && extMsg.ContextInfo.StanzaID != nil {
 			qID := extMsg.ContextInfo.GetStanzaID()
@@ -267,27 +288,26 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 				return
 			}
 			
-            // 🔥 [NEW] Archive Movie Selection 🔥
-            // یہ چیک کرے گا کہ کیا رپلائی آرکائیو سرچ کا ہے؟
-            movieMutex.Lock()
-            _, isArchiveSearch := searchCache[senderID] // senderID وہی ہے جو اوپر define ہے
-            movieMutex.Unlock()
-
-            // اگر یوزر کی سرچ ہسٹری موجود ہے اور اس نے نمبر بھیجا ہے
-            if isArchiveSearch {
-                 // چیک کریں کہ میسج صرف نمبر ہے
-                if _, err := strconv.Atoi(bodyClean); err == nil {
-                    // اس نمبر کو ہینڈل کرنے کے لیے مووی فنکشن کو بھیجیں
-                    go handleArchive(client, v, bodyClean)
-                    return
-                }
-            }
-
-			// 3. YouTube Format Selection
+			// 🔥 2. YouTube Format Selection (PRIORITY FIX 🚀)
+			// یوٹیوب کو اوپر لے آئے ہیں تاکہ اگر یہ یوٹیوب کا مینو ہے تو مووی والا کوڈ اس میں دخل نہ دے۔
 			if stateYT, ok := ytDownloadCache[qID]; ok && stateYT.BotLID == botID {
 				delete(ytDownloadCache, qID)
 				go handleYTDownload(client, v, stateYT.Url, bodyClean, (bodyClean == "4"))
 				return
+			}
+
+			// 🔥 3. Archive Movie Selection
+			// اب یہ تب ہی چلے گا جب اوپر والا یوٹیوب کا رپلائی نہ ہو۔
+			movieMutex.Lock()
+			_, isArchiveSearch := searchCache[senderID]
+			movieMutex.Unlock()
+
+			if isArchiveSearch {
+				// چیک کریں کہ میسج صرف نمبر ہے
+				if _, err := strconv.Atoi(bodyClean); err == nil {
+					go handleArchive(client, v, bodyClean)
+					return
+				}
 			}
 
 			// 🔥 4. AI CONTEXTUAL REPLY

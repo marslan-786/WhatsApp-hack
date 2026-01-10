@@ -22,7 +22,12 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
-	//"google.golang.org/protobuf/proto"
+	"go.mongodb.org/mongo-driver/mongo"
+    "go.mongodb.org/mongo-driver/mongo/options"
+    "go.mongodb.org/mongo-driver/bson"
+    "mime/multipart" // Catbox k liye
+    "bytes"          // Catbox k liye
+    "io"   
 )
 
 var (
@@ -47,6 +52,9 @@ var (
 	ytCache         = make(map[string]YTSession)
 	ytDownloadCache = make(map[string]YTState)
     cachedMenuImage *waProto.ImageMessage
+    mongoClient *mongo.Client
+    msgCollection *mongo.Collection
+
 
 )
 
@@ -93,41 +101,65 @@ func main() {
 	// 1. سروسز اسٹارٹ کریں
 	initRedis()
 	loadPersistentUptime()
-	loadGlobalSettings() // ✅ سیٹنگز لوڈ کریں
+	loadGlobalSettings() 
 	startPersistentUptimeTracker()
     SetupFeatures()
-	// 2. ڈیٹا بیس کنکشن (صرف Postgres)
+
+    // 🔥🔥🔥 [NEW] MONGODB CONNECTION START 🔥🔥🔥
+    mongoURL := os.Getenv("MONGO_URL")
+    if mongoURL != "" {
+        // 10 سیکنڈ کا ٹائم آؤٹ تاکہ کنکشن اٹک نہ جائے
+        mCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+        defer cancel()
+        
+        // Connect Logic
+        mClient, err := mongo.Connect(mCtx, options.Client().ApplyURI(mongoURL))
+        if err != nil {
+            fmt.Println("❌ MongoDB Connection Error:", err)
+        } else {
+            // Ping check
+            if err := mClient.Ping(mCtx, nil); err != nil {
+                fmt.Println("❌ MongoDB Ping Failed:", err)
+            } else {
+                mongoClient = mClient
+                // Database: whatsapp_bot, Collection: messages
+                msgCollection = mClient.Database("whatsapp_bot").Collection("messages")
+                fmt.Println("🍃 [MONGODB] Connected for Chat History!")
+            }
+        }
+    } else {
+        fmt.Println("⚠️ MONGO_URL not found! Chat history will not be saved.")
+    }
+    // 🔥🔥🔥 [NEW] MONGODB CONNECTION END 🔥🔥🔥
+
+
+	// 2. ڈیٹا بیس کنکشن (Postgres)
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		// اگر URL نہیں ہے تو کریش کر جاؤ (کیونکہ SQLite کا آپشن ختم کر دیا ہے)
 		log.Fatal("❌ FATAL ERROR: DATABASE_URL environment variable is missing! This bot requires PostgreSQL.")
 	}
 
 	fmt.Println("🐘 [DATABASE] Connecting to PostgreSQL...")
 
-	// ⚡ Raw DB کنکشن کھولیں
 	rawDB, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("❌ Failed to open Postgres connection: %v", err)
 	}
 
-	// ⚡ Connection Pooling (تیز رفتاری کے لیے)
-	rawDB.SetMaxOpenConns(20) // 14+ بوٹس کے لیے بہترین
+	rawDB.SetMaxOpenConns(20)
 	rawDB.SetMaxIdleConns(5)
 	rawDB.SetConnMaxLifetime(30 * time.Minute)
 	fmt.Println("✅ [TUNING] Postgres Pool Configured (Max: 20 Connections)")
 
-	// 3. WhatsMeow کنٹینر بنائیں
+	// 3. WhatsMeow کنٹینر
 	dbLog := waLog.Stdout("Database", "ERROR", true)
 	container = sqlstore.NewWithDB(rawDB, "postgres", dbLog)
 
-	// 🔥🔥🔥 [FIXED] اب Context پاس کر دیا ہے 🔥🔥🔥
-	err = container.Upgrade(context.Background()) 
+	err = container.Upgrade(context.Background())
 	if err != nil {
 		log.Fatalf("❌ Failed to initialize database tables: %v", err)
 	}
 	fmt.Println("✅ [DATABASE] Tables verified/created successfully!")
-	// 🔥🔥🔥 [FIX END] 🔥🔥🔥
 
 	dbContainer = container
 
@@ -138,15 +170,26 @@ func main() {
 	// 5. باقی سسٹمز
 	InitLIDSystem()
 
-	// 6. ویب سرور روٹس
+	// 6. ویب سرور روٹس (UPDATED)
 	http.HandleFunc("/", serveHTML)
 	http.HandleFunc("/pic.png", servePicture)
 	http.HandleFunc("/ws", handleWebSocket)
-	http.HandleFunc("/api/pair", handlePairAPI)
+	
+    // Pair APIs
+    http.HandleFunc("/api/pair", handlePairAPI)
 	http.HandleFunc("/link/pair/", handlePairAPILegacy)
-	http.HandleFunc("/link/delete", handleDeleteSession)
+	
+    // Delete APIs
+    http.HandleFunc("/link/delete", handleDeleteSession)
 	http.HandleFunc("/del/all", handleDelAllAPI)
 	http.HandleFunc("/del/", handleDelNumberAPI)
+
+    // 🔥🔥🔥 [NEW] WEB VIEW & CHAT HISTORY APIS 🔥🔥🔥
+    http.HandleFunc("/lists", serveListsHTML)       // HTML Page
+    http.HandleFunc("/api/sessions", handleGetSessions) // Active Bots
+    http.HandleFunc("/api/chats", handleGetChats)       // Chat List
+    http.HandleFunc("/api/messages", handleGetMessages) // Messages
+    // 🔥🔥🔥 [NEW END] 🔥🔥🔥
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -167,7 +210,6 @@ func main() {
 
 	fmt.Println("\n🛑 Shutting down system...")
 
-	// بوٹس کو صاف طریقے سے بند کریں
 	clientsMutex.Lock()
 	for id, activeClient := range activeClients {
 		fmt.Printf("🔌 Disconnecting Bot: %s\n", id)
@@ -175,7 +217,12 @@ func main() {
 	}
 	clientsMutex.Unlock()
 
-	// ڈیٹا بیس بند کریں
+    // Mongo Close
+    if mongoClient != nil {
+        mongoClient.Disconnect(context.Background())
+        fmt.Println("🍃 MongoDB Disconnected")
+    }
+
 	if rawDB != nil {
 		rawDB.Close()
 	}
@@ -724,4 +771,118 @@ func monitorNewSessions(container *sqlstore.Container) {
 			}
 		}
 	}
+}
+
+// 1. HTML Page Serve
+func serveListsHTML(w http.ResponseWriter, r *http.Request) {
+    http.ServeFile(w, r, "web/lists.html")
+}
+
+// 2. Active Sessions API
+func handleGetSessions(w http.ResponseWriter, r *http.Request) {
+    clientsMutex.RLock()
+    var sessions []string
+    for id := range activeClients {
+        sessions = append(sessions, id)
+    }
+    clientsMutex.RUnlock()
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(sessions)
+}
+
+// 3. Get Chats (Unique ChatIDs from Mongo for a Bot)
+func handleGetChats(w http.ResponseWriter, r *http.Request) {
+    botID := r.URL.Query().Get("bot_id")
+    if botID == "" { http.Error(w, "Bot ID required", 400); return }
+
+    // Mongo se distinct chat_ids uthayen
+    filter := bson.M{"bot_id": botID}
+    chats, err := msgCollection.Distinct(context.Background(), "chat_id", filter)
+    if err != nil {
+        http.Error(w, err.Error(), 500)
+        return
+    }
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(chats)
+}
+
+// 4. Get Messages
+func handleGetMessages(w http.ResponseWriter, r *http.Request) {
+    botID := r.URL.Query().Get("bot_id")
+    chatID := r.URL.Query().Get("chat_id")
+    
+    filter := bson.M{"bot_id": botID, "chat_id": chatID}
+    opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}}) // Oldest first
+
+    cursor, err := msgCollection.Find(context.Background(), filter, opts)
+    if err != nil { http.Error(w, err.Error(), 500); return }
+    
+    var messages []ChatMessage
+    if err = cursor.All(context.Background(), &messages); err != nil {
+        http.Error(w, err.Error(), 500); return
+    }
+    
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(messages)
+}
+
+func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, msg *waProto.Message, isFromMe bool, ts uint64) {
+    if msgCollection == nil { return }
+
+    var msgType, content string
+    timestamp := time.Unix(int64(ts), 0)
+
+    // 1. TEXT HANDLING
+    if txt := getText(msg); txt != "" {
+        msgType = "text"
+        content = txt
+    } else if msg.ImageMessage != nil {
+        // 2. IMAGE Handling (Base64 or Link if needed, but saving caption for now)
+        // For heavy storage, avoid saving image binary to Mongo.
+        msgType = "image"
+        content = "[Image] " + msg.ImageMessage.GetCaption()
+    } else if msg.VideoMessage != nil {
+        // 3. VIDEO Handling (Upload to Catbox)
+        msgType = "video"
+        data, err := client.Download(msg.VideoMessage)
+        if err == nil {
+            url, err := UploadToCatbox(data, "video.mp4")
+            if err == nil {
+                content = url // Catbox Link
+            } else {
+                content = "Error uploading video"
+            }
+        }
+    } else if msg.DocumentMessage != nil {
+        // 4. DOCUMENT Handling
+        msgType = "file"
+        data, err := client.Download(msg.DocumentMessage)
+        if err == nil {
+            fname := msg.DocumentMessage.GetFileName()
+            if fname == "" { fname = "file.bin" }
+            url, err := UploadToCatbox(data, fname)
+            if err == nil {
+                content = url
+            }
+        }
+    } else {
+        return // Unknown type
+    }
+
+    if content == "" { return }
+
+    doc := ChatMessage{
+        BotID:     botID,
+        ChatID:    chatID,
+        Sender:    chatID, // Simplified
+        Type:      msgType,
+        Content:   content,
+        IsFromMe:  isFromMe,
+        Timestamp: timestamp,
+    }
+
+    _, err := msgCollection.InsertOne(context.Background(), doc)
+    if err != nil {
+        fmt.Printf("❌ Mongo Save Error: %v\n", err)
+    }
 }
