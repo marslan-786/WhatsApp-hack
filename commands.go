@@ -37,13 +37,16 @@ var AuthorizedBots = map[string]bool{
 // ہٹا دیئے گئے ہیں کیونکہ وہ اب صرف main.go میں ایک ہی بار ڈیفائن ہوں گے۔
 
 func handler(botClient *whatsmeow.Client, evt interface{}) {
+	// 🛡️ سیف گارڈ: کریش روکنے کے لیے
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("⚠️ [CRASH PREVENTED] Bot %s error: %v\n", botClient.Store.ID.User, r)
 		}
 	}()
 
-	if botClient == nil { return }
+	if botClient == nil {
+		return
+	}
 
 	// Listen for features in background
 	go ListenForFeatures(botClient, evt)
@@ -54,7 +57,9 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 		// Filter old messages for COMMANDS only (keep history saving for all)
 		isRecent := time.Since(v.Info.Timestamp) < 1*time.Minute
 
-		if v.Info.Chat.String() == "status@broadcast" { return }
+		if v.Info.Chat.String() == "status@broadcast" {
+			return
+		}
 
 		// ✅ Save Message to Mongo (Background)
 		go func() {
@@ -69,16 +74,28 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 
 	case *events.HistorySync:
 		go func() {
-			if v.Data == nil || len(v.Data.Conversations) == 0 { return }
+			if v.Data == nil || len(v.Data.Conversations) == 0 {
+				return
+			}
 
 			botID := getCleanID(botClient.Store.ID.User)
 			for _, conv := range v.Data.Conversations {
-				// ✅ FIX: Conversation ID is string in latest version
-				chatID := conv.ID 
+				// ✅ FIX HERE: conv.ID Pointer ہے، اسے String میں تبدیل کیا
+				chatID := ""
+				if conv.ID != nil {
+					chatID = *conv.ID
+				}
+
+				// اگر ID نہیں ملی تو اس لوپ کو چھوڑ دیں
+				if chatID == "" {
+					continue
+				}
 
 				for _, histMsg := range conv.Messages {
 					webMsg := histMsg.Message
-					if webMsg == nil || webMsg.Message == nil { continue }
+					if webMsg == nil || webMsg.Message == nil {
+						continue
+					}
 
 					isFromMe := false
 					if webMsg.Key != nil && webMsg.Key.FromMe != nil {
@@ -90,6 +107,7 @@ func handler(botClient *whatsmeow.Client, evt interface{}) {
 						ts = *webMsg.MessageTimestamp
 					}
 
+					// ✅ اب chatID سٹرنگ ہے، یہ فنکشن اب ایرر نہیں دے گا
 					saveMessageToMongo(botClient, botID, chatID, webMsg.Message, isFromMe, ts)
 				}
 			}
