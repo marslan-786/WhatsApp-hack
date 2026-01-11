@@ -1238,7 +1238,7 @@ func sendMenu(client *whatsmeow.Client, v *events.Message) {
 		ForwardedNewsletterMessageInfo: &waProto.ForwardedNewsletterMessageInfo{
 			NewsletterJID:   proto.String(newsletterID),
 			NewsletterName:  proto.String(newsletterName),
-			ServerMessageID: proto.Int32(100),
+			ServerMessageID: proto.Int32(162),
 		},
 	}
 
@@ -1425,7 +1425,7 @@ func replyMessage(client *whatsmeow.Client, v *events.Message, text string) {
 				ForwardedNewsletterMessageInfo: &waProto.ForwardedNewsletterMessageInfo{
 					NewsletterJID:   proto.String(newsletterID),
 					NewsletterName:  proto.String(newsletterName),
-					ServerMessageID: proto.Int32(100), // کوئی بھی فرضی آئی ڈی
+					ServerMessageID: proto.Int32(162), // کوئی بھی فرضی آئی ڈی
 				},
 			},
 		},
@@ -1453,7 +1453,7 @@ func sendReplyMessage(client *whatsmeow.Client, v *events.Message, text string) 
 				ForwardedNewsletterMessageInfo: &waProto.ForwardedNewsletterMessageInfo{
 					NewsletterJID:   proto.String(newsletterID),
 					NewsletterName:  proto.String(newsletterName),
-					ServerMessageID: proto.Int32(100), // کوئی بھی فرضی ID
+					ServerMessageID: proto.Int32(162), // کوئی بھی فرضی ID
 				},
 			},
 		},
