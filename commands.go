@@ -1394,6 +1394,10 @@ func replyMessage(client *whatsmeow.Client, v *events.Message, text string) {
 }
 
 func sendReplyMessage(client *whatsmeow.Client, v *events.Message, text string) {
+	// چینل کی سیٹنگز
+	newsletterID := "120363424476167116@newsletter"
+	newsletterName := "Bot Link Here"
+
 	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		ExtendedTextMessage: &waProto.ExtendedTextMessage{
 			Text: proto.String(text),
@@ -1401,10 +1405,21 @@ func sendReplyMessage(client *whatsmeow.Client, v *events.Message, text string) 
 				StanzaID:      proto.String(v.Info.ID),
 				Participant:   proto.String(v.Info.Sender.String()),
 				QuotedMessage: v.Message,
+				
+				// یہ لائن فارورڈ ٹیگ کو فعال کرتی ہے
+				IsForwarded: proto.Bool(true),
+				
+				// یہ حصہ چینل کا نام اور آئی ڈی سیٹ کرتا ہے
+				ForwardedNewsletterMessageInfo: &waProto.ForwardedNewsletterMessageInfo{
+					NewsletterJid:   proto.String(newsletterID),
+					NewsletterName:  proto.String(newsletterName),
+					ServerMessageId: proto.Int32(100), // کوئی بھی فرضی ID
+				},
 			},
 		},
 	})
 }
+
 
 func getText(m *waProto.Message) string {
 	if m.Conversation != nil { return *m.Conversation }
