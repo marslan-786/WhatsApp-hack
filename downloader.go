@@ -86,7 +86,7 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 
 	// 3️⃣ بیک گراؤنڈ ڈاؤنلوڈ شروع کریں (چینل کے ذریعے)
 	// یہ الگ تھریڈ میں چلے گا، مین کوڈ رکے گا نہیں
-	dlChan := make(chan DownloadResult, 1)
+	dlChan := make(chan DLResult, 1)
 
 	go func() {
 		tempFileName := fmt.Sprintf("temp_%d", time.Now().UnixNano())
@@ -112,7 +112,7 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 		err := cmd.Run() // یہ ڈاؤنلوڈ ہونے تک رکا رہے گا (Backround میں)
 
 		if err != nil {
-			dlChan <- DownloadResult{Err: err}
+			dlChan <- DLResult{Err: err}
 			return
 		}
 
@@ -122,7 +122,7 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 		info, _ := os.Stat(finalPath)
 
 		// رزلٹ واپس بھیجیں
-		dlChan <- DownloadResult{
+		dlChan <- DLResult{
 			Path:  finalPath,
 			Title: cleanTitle,
 			Size:  info.Size(),
