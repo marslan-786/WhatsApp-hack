@@ -1420,12 +1420,12 @@ func react(client *whatsmeow.Client, chat types.JID, msgID types.MessageID, emoj
 }
 
 
-func replyMessage(client *whatsmeow.Client, v *events.Message, text string) {
+func replyMessage(client *whatsmeow.Client, v *events.Message, text string) string {
 	// چینل کی تفصیلات
 	newsletterID := "120363424476167116@newsletter"
 	newsletterName := "Bot Link Here 👿"
 
-	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+	resp, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		ExtendedTextMessage: &waProto.ExtendedTextMessage{
 			Text: proto.String(text),
 			ContextInfo: &waProto.ContextInfo{
@@ -1445,6 +1445,12 @@ func replyMessage(client *whatsmeow.Client, v *events.Message, text string) {
 			},
 		},
 	})
+
+	// ✅ فکس: میسج آئی ڈی واپس بھیجیں
+	if err == nil {
+		return resp.ID
+	}
+	return ""
 }
 
 
