@@ -40,7 +40,9 @@ func sendPremiumCard(client *whatsmeow.Client, v *events.Message, title, site, i
 	replyMessage(client, v, card)
 }
 // 📦 ڈاؤنلوڈ کا رزلٹ سٹور کرنے کے لیے سٹرکچر
-type DownloadResult struct {
+
+// ✅ Fixed: Struct کا نام اب DLResult ہے تاکہ نیچے کوڈ سے میچ کرے
+type DLResult struct {
 	Path  string
 	Title string
 	Size  int64
@@ -48,7 +50,7 @@ type DownloadResult struct {
 	Err   error
 }
 
-// 🚀 ہیوی ڈیوٹی میڈیا انجن (Main Orchestrator)
+// 🚀 ہیوی ڈیوٹی میڈیا انجن
 func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode string, optionalFormat ...string) {
 	// 1️⃣ ٹائٹل نکالیں
 	fmt.Println("🔍 Fetching Title...")
@@ -82,7 +84,7 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 	replyMessage(client, v, card)
 
 	// 3️⃣ بیک گراؤنڈ ڈاؤنلوڈ شروع کریں
-	dlChan := make(chan DownloadResult, 1)
+	dlChan := make(chan DLResult, 1)
 
 	go func() {
 		tempFileName := fmt.Sprintf("temp_%d", time.Now().UnixNano())
@@ -108,15 +110,17 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 		err := cmd.Run()
 
 		if err != nil {
-			dlChan <- DownloadResult{Err: err}
+			dlChan <- DLResult{Err: err}
 			return
 		}
 
+		// نام تبدیل کریں اور سائز لیں
 		finalPath := cleanTitle + finalExt
 		os.Rename(tempFileName, finalPath)
 		info, _ := os.Stat(finalPath)
 
-		dlChan <- DownloadResult{
+		// رزلٹ واپس بھیجیں
+		dlChan <- DLResult{
 			Path:  finalPath,
 			Title: cleanTitle,
 			Size:  info.Size(),
@@ -125,7 +129,7 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 		}
 	}()
 
-	// 4️⃣ یوزر کے جواب کا انتظار کریں
+	// 4️⃣ یوزر کے جواب کا انتظار کریں (60 سیکنڈ ٹائم آؤٹ)
 	senderID := v.Info.Sender.ToNonAD().String()
 	userChoice, success := WaitForUserReply(senderID, 60*time.Second)
 
@@ -133,21 +137,18 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 	// 🚦 DECISION LOGIC
 	// ====================================================
 
-	// اگر ٹائم آؤٹ ہوا (!success) یا یوزر نے "1" دبایا یا کچھ الٹا سیدھا لکھا
 	if !success || strings.TrimSpace(userChoice) == "1" {
-		if !success {
-			// Timeout: Silent fallback
-		} else {
+		// --- OPTION 1: WHATSAPP ---
+		if success {
 			react(client, v.Info.Chat, v.Info.ID, "📤")
 		}
 
-		// رزلٹ کا انتظار
 		res := <-dlChan
 		if res.Err != nil {
 			replyMessage(client, v, "❌ Download Failed.")
 			return
 		}
-		defer os.Remove(res.Path) // صفائی
+		defer os.Remove(res.Path)
 
 		// ہیلپر فنکشن کال کریں
 		uploadToWhatsApp(client, v, res, mode)
@@ -157,7 +158,6 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 		react(client, v.Info.Chat, v.Info.ID, "☁️")
 		replyMessage(client, v, "📱 *Enter Jazz Number (03XXXXXXXXX):*\n_(You have 60s)_")
 
-		// بیک گراؤنڈ رزلٹ پکڑ لیں
 		res := <-dlChan
 		if res.Err != nil {
 			replyMessage(client, v, "❌ Download Failed in background.")
@@ -205,7 +205,7 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 		}
 
 	} else {
-		// اگر یوزر نے غلط آپشن دیا تو بھی واٹس ایپ پر بھیج دو
+		// غلط ان پٹ
 		replyMessage(client, v, "❌ Invalid Option. Sending file directly...")
 		res := <-dlChan
 		if res.Err == nil {
@@ -216,7 +216,7 @@ _(Auto-send in 1 min if no reply)_`, strings.ToUpper(mode), cleanTitle)
 }
 
 // ---------------------------------------------------------
-// 📤 HELPER: Upload To WhatsApp (Separated Function)
+// 📤 HELPER: Upload To WhatsApp (Updated with filepath)
 // ---------------------------------------------------------
 func uploadToWhatsApp(client *whatsmeow.Client, v *events.Message, res DLResult, mode string) {
 	// فائل سائز چیک (1.5GB Split Logic)
@@ -269,7 +269,7 @@ func uploadToWhatsApp(client *whatsmeow.Client, v *events.Message, res DLResult,
 			DirectPath:    proto.String(up.DirectPath),
 			MediaKey:      up.MediaKey,
 			Mimetype:      proto.String(mime),
-			FileName:      proto.String(filepath.Base(res.Path)), // ✅ Filepath Used
+			FileName:      proto.String(filepath.Base(res.Path)), // ✅ Filepath Used Correctly
 			FileLength:    proto.Uint64(uint64(res.Size)),
 			Caption:       proto.String("✅ " + res.Title),
 			FileSHA256:    up.FileSHA256,
