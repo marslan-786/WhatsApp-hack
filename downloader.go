@@ -11,9 +11,11 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"strconv"
 	"path/filepath"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"google.golang.org/protobuf/proto"
