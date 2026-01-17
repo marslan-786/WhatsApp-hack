@@ -49,178 +49,219 @@ type DLResult struct {
 	Mime  string
 	Err   error
 }
+// کانسٹنٹ ویلیو: 1.5 جی بی (MB میں)
+const MaxWhatsAppSizeMB = 1500.0
 
-// 🚀 ہیوی ڈیوٹی میڈیا انجن
-// 🚀 ہیوی ڈیوٹی میڈیا انجن (Parallel Processing: Download + User Interaction)
-// 🚀 ہیوی ڈیوٹی میڈیا انجن (Updated: Download First -> Then Menu)
 func downloadAndSend(client *whatsmeow.Client, v *events.Message, ytUrl, mode string, optionalFormat ...string) {
-	// 1️⃣ صارف کو بتائیں کہ ڈاؤنلوڈ شروع ہو گیا ہے
+	// 1️⃣ صارف کو بتائیں
 	react(client, v.Info.Chat, v.Info.ID, "⬇️")
-	statusMsgID := replyMessage(client, v, "⏳ *Downloading Media...* Please wait.")
+	statusMsgID := replyMessage(client, v, "⏳ *Downloading Media...* Please wait.\n_(Optimized for 1.5GB Limits)_")
 
-	// 2️⃣ ٹائٹل اور فائل نیم سیٹ اپ
-	fmt.Println("🔍 Fetching Title...")
+	// 2️⃣ ٹائٹل فیچ کریں
 	cmdTitle := exec.Command("yt-dlp", "--get-title", "--no-playlist", ytUrl)
 	titleOut, _ := cmdTitle.Output()
 
 	cleanTitle := "Media_File"
 	if len(titleOut) > 0 {
 		cleanTitle = strings.TrimSpace(string(titleOut))
-		cleanTitle = strings.ReplaceAll(cleanTitle, "/", "-")
-		cleanTitle = strings.ReplaceAll(cleanTitle, "\\", "-")
-		cleanTitle = strings.ReplaceAll(cleanTitle, "\"", "'")
+		// نام صاف کریں تاکہ ایرر نہ آئے
+		cleanTitle = strings.Map(func(r rune) rune {
+			if strings.ContainsRune(`/\?%*:|"<>`, r) {
+				return '-'
+			}
+			return r
+		}, cleanTitle)
 	}
 
-	tempFileName := fmt.Sprintf("temp_%d", time.Now().UnixNano())
-	formatArg := "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-	if len(optionalFormat) > 0 && optionalFormat[0] != "" {
-		formatArg = optionalFormat[0]
+	tempFileName := fmt.Sprintf("temp_%d.mp4", time.Now().UnixNano())
+	
+	// 🔥 Playability Fix: زبردستی H.264 فارمیٹ (جو واٹس ایپ پر 100٪ چلتا ہے)
+	// اگر بڑی ویڈیو ہے تو ہمیں 'bv*+ba' چاہیے لیکن mp4 کنٹینر میں
+	formatArg := "bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+	if mode == "audio" {
+		tempFileName = strings.Replace(tempFileName, ".mp4", ".mp3", 1)
+		formatArg = "bestaudio" // آڈیو کے لیے الگ
 	}
 
-	var args []string
-	finalExt := ".mp4"
+	args := []string{
+		"--no-playlist", 
+		"-f", formatArg, 
+		"--merge-output-format", "mp4",
+		"--force-ipv4", // کنکشن ڈراپ ہونے سے بچانے کے لیے
+		"-o", tempFileName, 
+		ytUrl,
+	}
 
 	if mode == "audio" {
-		tempFileName += ".mp3"
-		finalExt = ".mp3"
 		args = []string{"--no-playlist", "-f", "bestaudio", "--extract-audio", "--audio-format", "mp3", "-o", tempFileName, ytUrl}
-	} else {
-		tempFileName += ".mp4"
-		args = []string{"--no-playlist", "-f", formatArg, "--merge-output-format", "mp4", "-o", tempFileName, ytUrl}
 	}
 
-	// 3️⃣ ڈاؤنلوڈ شروع (Blocking Process)
+	// 3️⃣ ڈاؤنلوڈ شروع
 	fmt.Printf("🛠️ [CMD] Downloading: %s\n", cleanTitle)
 	cmd := exec.Command("yt-dlp", args...)
+	cmd.Stderr = os.Stderr // لوگ دیکھیں اگر ایرر آئے
 	err := cmd.Run()
 
 	if err != nil {
 		fmt.Println("❌ Download Error:", err)
-		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
-			ExtendedTextMessage: &waProto.ExtendedTextMessage{
+		client.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
+			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 				Text:      proto.String("❌ Download Failed!"),
-				ContextInfo: &waProto.ContextInfo{StanzaID: proto.String(statusMsgID)}, // پرانے میسج کا حوالہ
+				ContextInfo: &waE2E.ContextInfo{StanzaID: proto.String(statusMsgID)},
 			},
 		})
 		return
 	}
 
-	// نام ٹھیک کریں اور سائز لیں
+	// فائل کا اصلی نام اور سائز
+	finalExt := ".mp4"
+	if mode == "audio" { finalExt = ".mp3" }
 	finalPath := cleanTitle + finalExt
 	os.Rename(tempFileName, finalPath)
+
 	info, _ := os.Stat(finalPath)
 	fileSize := info.Size()
-	
-	// صفائی کا انتظام (ڈیفر میں نہیں، کیونکہ ہمیں فائل تب تک چاہیے جب تک پروسیس مکمل نہ ہو)
-	// ہم مینول ریموو کریں گے۔
-
-	// 4️⃣ فائل تیار ہے! اب مینیو دکھائیں
 	fileSizeMB := float64(fileSize) / (1024 * 1024)
-	
+
+	// 4️⃣ مینیو دکھائیں
 	card := fmt.Sprintf(`╔══════════════════════╗
 ║ ✅ DOWNLOAD COMPLETE
 ╠══════════════════════╣
 ║ 📝 File: %s
 ║ 📦 Size: %.2f MB
 ╠══════════════════════╣
-║ ⚡ Ready to Send!
+║ ⚡ Select Action:
 ╚══════════════════════╝
 
-*Choose Destination:*
-1️⃣ Send Here (WhatsApp)
-2️⃣ Upload to Jazz Drive ☁️
+1️⃣ Send to WhatsApp (Limit 2GB)
+2️⃣ Upload to Jazz Drive (No Limit) ☁️
 
-_(You have 5 mins - Default: WhatsApp)_`, cleanTitle, fileSizeMB)
+_(Default: WhatsApp)_`, cleanTitle, fileSizeMB)
 
 	replyMessage(client, v, card)
 
-	// 5️⃣ یوزر کے جواب کا انتظار (5 منٹ ٹائم آؤٹ)
+	// یوزر کا جواب
 	senderID := v.Info.Sender.ToNonAD().String()
-	userChoice, success := WaitForUserReply(senderID, 300*time.Second) // 300s = 5 Minutes
+	userChoice, success := WaitForUserReply(senderID, 300*time.Second)
 
 	// ====================================================
 	// 🚦 DECISION LOGIC
 	// ====================================================
 
-	// اگر ٹائم آؤٹ ہوا (!success) یا یوزر نے "1" دبایا
+	// --- OPTION 1: WHATSAPP (SPLIT IF NEEDED) ---
 	if !success || strings.TrimSpace(userChoice) == "1" {
-		if !success {
-			// Timeout Message (Optional)
-			// replyMessage(client, v, "⌛ Timeout! Sending to WhatsApp...")
-		}
 		react(client, v.Info.Chat, v.Info.ID, "📤")
 
-		// فائل پہلے سے موجود ہے، بس بھیج دیں
-		dlRes := DLResult{Path: finalPath, Title: cleanTitle, Size: fileSize, Mime: mode}
-		uploadToWhatsApp(client, v, dlRes, mode)
-		
-		// بھیجنے کے بعد ڈیلیٹ
+		// چیک کریں اگر فائل 1.5GB (MaxWhatsAppSizeMB) سے بڑی ہے
+		if fileSizeMB > MaxWhatsAppSizeMB && mode != "audio" {
+			replyMessage(client, v, fmt.Sprintf("⚠️ *File is large (%.2f GB).* Splitting into 1.5GB parts for WhatsApp...", fileSizeMB/1024))
+			
+			// 🔥 1.5GB Split Function Call
+			parts, err := splitVideoSmart(finalPath, MaxWhatsAppSizeMB) 
+			if err != nil {
+				replyMessage(client, v, "❌ Error splitting. Sending original (might fail).")
+				uploadToWhatsApp(client, v, DLResult{Path: finalPath, Title: cleanTitle, Size: fileSize, Mime: mode}, mode)
+			} else {
+				// پارٹس بھیجیں
+				for i, partPath := range parts {
+					partTitle := fmt.Sprintf("%s (Part %d/%d)", cleanTitle, i+1, len(parts))
+					pInfo, _ := os.Stat(partPath)
+					
+					fmt.Printf("📤 Sending Part %d: %s\n", i+1, partPath)
+					uploadToWhatsApp(client, v, DLResult{Path: partPath, Title: partTitle, Size: pInfo.Size(), Mime: mode}, mode)
+					
+					os.Remove(partPath) // اسپیس بچانے کے لیے بھیجنے کے بعد ڈیلیٹ
+					time.Sleep(3 * time.Second)
+				}
+				replyMessage(client, v, "✅ All parts sent!")
+			}
+		} else {
+			// اگر 1.5GB سے چھوٹی ہے تو ڈائریکٹ بھیجیں
+			uploadToWhatsApp(client, v, DLResult{Path: finalPath, Title: cleanTitle, Size: fileSize, Mime: mode}, mode)
+		}
 		os.Remove(finalPath)
 
 	} else if strings.TrimSpace(userChoice) == "2" {
-		// --- OPTION 2: JAZZ DRIVE ---
+		// --- OPTION 2: JAZZ DRIVE (NO SPLITTING) ---
 		react(client, v.Info.Chat, v.Info.ID, "☁️")
-		replyMessage(client, v, "📱 *Enter Jazz Number (03XXXXXXXXX):*\n_(You have 2 mins)_")
+		replyMessage(client, v, "📱 *Enter Jazz Number:*")
 
-		// 1. Get Number
 		phone, ok := WaitForUserReply(senderID, 120*time.Second)
-		if !ok || phone == "" {
-			replyMessage(client, v, "❌ Timeout. Sending to WhatsApp instead.")
-			dlRes := DLResult{Path: finalPath, Title: cleanTitle, Size: fileSize, Mime: mode}
-			uploadToWhatsApp(client, v, dlRes, mode)
-			os.Remove(finalPath)
-			return
-		}
+		if !ok { return }
 
-		// 2. Send OTP
 		userID := fmt.Sprintf("user_%d", time.Now().Unix())
-		replyMessage(client, v, "🔄 Sending OTP...")
-
 		if jazzGenOTP(userID, phone) {
-			replyMessage(client, v, "🔑 *OTP Sent! Enter 4-digit code:*")
+			replyMessage(client, v, "🔑 *Enter OTP:*")
 			otp, ok := WaitForUserReply(senderID, 120*time.Second)
-			if !ok || otp == "" {
-				replyMessage(client, v, "❌ Timeout. Sending to WhatsApp.")
-				dlRes := DLResult{Path: finalPath, Title: cleanTitle, Size: fileSize, Mime: mode}
-				uploadToWhatsApp(client, v, dlRes, mode)
-				os.Remove(finalPath)
-				return
-			}
-
-			// 3. Verify & Upload
-			replyMessage(client, v, "🔐 Verifying...")
-			if jazzVerifyOTP(userID, otp) {
-				replyMessage(client, v, "☁️ *Uploading to Jazz Drive...*\n_(This may take time)_")
-
-				// یہاں سیشن بالکل تازہ ہے، اور فائل بھی ریڈی ہے۔ فیل ہونے کا چانس 0٪
+			if ok && jazzVerifyOTP(userID, otp) {
+				replyMessage(client, v, "☁️ *Uploading full file (No Splitting)...*")
+				
+				// 🔥 یہاں ہم پوری فائل بھیج رہے ہیں، کوئی کٹنگ نہیں
 				link, err := jazzUploadFile(userID, finalPath)
 				if err == nil {
-					finalText := fmt.Sprintf("🎉 *Upload Complete!*\n\n📂 *File:* %s\n📦 *Size:* %.2f MB\n🔗 *Link:* %s",
-						cleanTitle, fileSizeMB, link)
-					replyMessage(client, v, finalText)
+					replyMessage(client, v, fmt.Sprintf("🎉 *Link:* %s", link))
 				} else {
 					replyMessage(client, v, "❌ Upload Failed: "+err.Error())
-					// اگر فیل ہو جائے تو بیک اپ کے طور پر واٹس ایپ پر بھیج دیں؟ (آپ کی مرضی)
-					// uploadToWhatsApp(client, v, DLResult{Path: finalPath...}, mode)
 				}
 			} else {
-				replyMessage(client, v, "❌ Invalid OTP.")
+				replyMessage(client, v, "❌ Invalid OTP")
 			}
-		} else {
-			replyMessage(client, v, "❌ Failed to send OTP. Check number.")
 		}
-		
-		// کام ختم، فائل اڑا دیں
 		os.Remove(finalPath)
-
 	} else {
-		// غلط ان پٹ -> ڈیفالٹ ایکشن (واٹس ایپ)
-		replyMessage(client, v, "❌ Invalid Option. Sending file here...")
-		dlRes := DLResult{Path: finalPath, Title: cleanTitle, Size: fileSize, Mime: mode}
-		uploadToWhatsApp(client, v, dlRes, mode)
+		replyMessage(client, v, "❌ Invalid Option")
 		os.Remove(finalPath)
 	}
 }
+
+// 🔥 SMART SPLIT FUNCTION (Time-based calculation for playability)
+// یہ فنکشن فائل سائز کی بجائے ٹائم کیلکولیٹ کر کے کاٹے گا تاکہ ویڈیو پلے ہو سکے
+func splitVideoSmart(inputPath string, targetMB float64) ([]string, error) {
+	// 1. ویڈیو کی کل Duration (Seconds) حاصل کریں
+	cmd := exec.Command("ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", inputPath)
+	out, err := cmd.Output()
+	if err != nil { return nil, err }
+	
+	durationSec, _ := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	
+	// 2. فائل کا سائز دیکھیں
+	info, _ := os.Stat(inputPath)
+	totalSizeMB := float64(info.Size()) / (1024 * 1024)
+	
+	// 3. کیلکولیشن: اگر 5GB کی فائل 2 گھنٹے کی ہے، تو 1.5GB کتنے منٹ کی ہوگی؟
+	// Formula: (TargetMB / TotalMB) * TotalDuration
+	chunkDuration := (targetMB / totalSizeMB) * durationSec
+	
+	// تھوڑا سا بفر رکھیں (Safe margin 5%)
+	chunkDuration = chunkDuration * 0.95
+
+	fmt.Printf("✂️ Splitting video. Total: %.2f MB, Target: %.2f MB, Chunk Time: %.0f sec\n", totalSizeMB, targetMB, chunkDuration)
+
+	// 4. FFmpeg Segment Command
+	// -segment_time: ہر ٹکڑا کتنے سیکنڈ کا ہو
+	// -reset_timestamps 1: یہ بہت ضروری ہے تاکہ ہر پارٹ شروع سے پلے ہو (00:00 سے)
+	outputPattern := strings.Replace(inputPath, ".mp4", "_part%03d.mp4", 1)
+	
+	splitCmd := exec.Command("ffmpeg", 
+		"-i", inputPath, 
+		"-c", "copy",          // Re-encode نہیں کریں گے (Fastest)
+		"-map", "0", 
+		"-f", "segment", 
+		"-segment_time", fmt.Sprintf("%.0f", chunkDuration), 
+		"-reset_timestamps", "1", 
+		outputPattern,
+	)
+
+	if err := splitCmd.Run(); err != nil {
+		return nil, err
+	}
+
+	// 5. پارٹس کی لسٹ واپس کریں
+	baseName := strings.TrimSuffix(outputPattern, "%03d.mp4")
+	files, _ := filepath.Glob(baseName + "*")
+	return files, nil
+}
+
 // ---------------------------------------------------------
 // 📤 HELPER: Upload To WhatsApp (Updated with filepath)
 // ---------------------------------------------------------
