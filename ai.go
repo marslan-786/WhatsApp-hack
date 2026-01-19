@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
     "log" 
+    "os"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -70,6 +71,26 @@ func handleAIReply(client *whatsmeow.Client, v *events.Message) bool {
 }
 
 // ⚙️ INTERNAL LOGIC (Common for Command & Reply)
+// گلوبل ویری ایبلز (فائل کے شروع میں imports کے نیچے رکھیں)
+var (
+	currentKeyID = 1          // ابھی کون سی کی چل رہی ہے
+	keyMutex     sync.Mutex   // تھریڈ سیفٹی کے لیے
+)
+
+// یہ فنکشن چیک کرے گا کہ ٹوٹل کتنی کیز موجود ہیں
+func getTotalKeysCount() int {
+	count := 0
+	for {
+		// چیک کریں GOOGLE_API_KEY_1, GOOGLE_API_KEY_2 ...
+		keyName := fmt.Sprintf("GOOGLE_API_KEY_%d", count+1)
+		if os.Getenv(keyName) == "" {
+			break
+		}
+		count++
+	}
+	return count
+}
+
 func processAIConversation(client *whatsmeow.Client, v *events.Message, query string, cmd string, isReply bool) {
 	// اگر یہ رپلائی نہیں ہے تو ری ایکٹ کریں (Processing...)
 	if !isReply {
@@ -86,21 +107,19 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 		if err == nil {
 			var session AISession
 			_ = json.Unmarshal([]byte(val), &session)
-
-			// اگر سیشن 30 منٹ سے پرانا ہو تو نیا شروع کریں
 			if time.Now().Unix()-session.LastUpdated < 1800 {
 				history = session.History
 			}
 		}
 	}
 
-	// 🕵️ AI کی شخصیت سیٹ کریں
+	// 🕵️ AI کی شخصیت
 	aiName := "Impossible AI"
 	if strings.ToLower(cmd) == "gpt" {
 		aiName = "GPT-4"
 	}
 
-	// ہسٹری کو لمٹ کریں
+	// ہسٹری لمٹ
 	if len(history) > 1500 {
 		history = history[len(history)-1500:]
 	}
@@ -109,9 +128,8 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 	fullPrompt := fmt.Sprintf(
 		"System: You are %s, a smart and friendly assistant.\n"+
 			"🔴 IMPORTANT RULES:\n"+
-			"1. **Match User's Language & Script:** If user types in Roman Urdu, reply in Roman Urdu. If Urdu Script, reply in Urdu Script. If English, reply in English.\n"+
-			"2. **Detect Topic Change:** Focus 100%% on the new message.\n"+
-			"3. **Be Casual:** Talk like a close friend.\n"+
+			"1. **Match User's Language:** If user types in Urdu, reply in Urdu.\n"+
+			"2. **Be Casual:** Talk like a close friend.\n"+
 			"----------------\n"+
 			"Chat History:\n%s\n"+
 			"----------------\n"+
@@ -119,45 +137,83 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 			"AI Response:",
 		aiName, history, query)
 
-	// 🚀 GEMINI INTEGRATION
 	ctx := context.Background()
-	
-	// کلائنٹ بنائیں
-	genaiClient, err := genai.NewClient(ctx, nil)
-	if err != nil {
-		log.Println("Error creating Gemini client:", err)
+	var finalResponse string
+	var lastError error
+
+	// 🔄 ROTATION LOGIC: کل کیز گنیں
+	totalKeys := getTotalKeysCount()
+	if totalKeys == 0 {
+		// اگر نمبر والی کیز نہیں ملیں تو ڈیفالٹ ٹرائی کریں
+		totalKeys = 1 
+	}
+
+	// 🔄 LOOP: جتنی کیز ہیں اتنی بار کوشش کریں
+	for i := 0; i < totalKeys; i++ {
+		
+		keyMutex.Lock()
+		// موجودہ کی کا نام بنائیں (GOOGLE_API_KEY_1, GOOGLE_API_KEY_2...)
+		envKeyName := fmt.Sprintf("GOOGLE_API_KEY_%d", currentKeyID)
+		apiKey := os.Getenv(envKeyName)
+		
+		// اگر نمبر والی کی نہیں ملی تو ڈیفالٹ GOOGLE_API_KEY اٹھا لے
+		if apiKey == "" {
+			apiKey = os.Getenv("GOOGLE_API_KEY")
+		}
+		keyMutex.Unlock()
+
+		// 🛠️ کلائنٹ بنائیں (Specific Key کے ساتھ)
+		genaiClient, err := genai.NewClient(ctx, &genai.ClientConfig{
+			APIKey: apiKey,
+		})
+		
+		if err != nil {
+			lastError = err
+			log.Printf("⚠️ Key %d Client Error: %v", currentKeyID, err)
+			continue // اگلی کی ٹرائی کریں
+		}
+
+		// 🧠 ماڈل کال (2.5 Flash)
+		result, err := genaiClient.Models.GenerateContent(
+			ctx,
+			"gemini-2.5-flash", // آپ کا پسندیدہ ماڈل
+			genai.Text(fullPrompt),
+			nil,
+		)
+
+		if err != nil {
+			lastError = err
+			log.Printf("❌ Key #%d Failed: %v", currentKeyID, err)
+
+			// 🔄 اگلی کی پر سوئچ کریں (Next Key)
+			keyMutex.Lock()
+			currentKeyID++
+			if currentKeyID > totalKeys {
+				currentKeyID = 1 // سائیکل ری سیٹ (واپس 1 پر)
+			}
+			keyMutex.Unlock()
+			
+			// تھوڑا سا انتظار کریں تاکہ گوگل بلاک نہ کرے
+			time.Sleep(500 * time.Millisecond)
+			continue // لوپ دوبارہ چلے گا نئی کی کے ساتھ
+		}
+
+		// ✅ کامیابی! (Success)
+		finalResponse = result.Text()
+		lastError = nil // ایرر ختم
+		break // لوپ توڑ دیں کیونکہ جواب مل گیا ہے
+	}
+
+	// 🛑 اگر ساری کیز فیل ہو گئیں
+	if lastError != nil {
 		if !isReply {
-			// 🛑 Client Creation Error بھیجیں
-			errMsg := fmt.Sprintf("❌ *Client Error:*\n```%v```", err)
+			errMsg := fmt.Sprintf("❌ *System Overload:*\nAll API keys are currently exhausted. Please try again later.\n\n`Last Error: %v`", lastError)
 			replyMessage(client, v, errMsg)
 		}
 		return
 	}
 
-	// ماڈل کو کال کریں
-	// نوٹ: اگر ماڈل کا نام غلط ہوا تو یہیں ایرر آئے گا
-	result, err := genaiClient.Models.GenerateContent(
-		ctx,
-		"gemini-1.5-flash", // میک شور کریں کہ یہ ماڈل آپ کے اکاؤنٹ پر ایکٹو ہے
-		genai.Text(fullPrompt),
-		nil,
-	)
-
-	var finalResponse string
-	if err != nil {
-		log.Println("Gemini API Error:", err)
-		if !isReply {
-			// 🛑 🛑 🛑 MAIN FIX IS HERE 🛑 🛑 🛑
-			// اصلی ایرر میسج بھیجیں
-			actualError := fmt.Sprintf("❌ *Gemini API Error:*\n```%v```", err)
-			replyMessage(client, v, actualError)
-		}
-		return
-	} else {
-		finalResponse = result.Text()
-	}
-
-	// ✅ جواب بھیجیں
+	// ✅ جواب بھیجیں (باقی کوڈ وہی ہے)
 	respPtr, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		ExtendedTextMessage: &waProto.ExtendedTextMessage{
 			Text: proto.String(finalResponse),
@@ -170,16 +226,13 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 	})
 
 	if err == nil {
-		// --- REDIS: نیا ڈیٹا محفوظ کریں ---
 		if rdb != nil {
 			newHistory := fmt.Sprintf("%s\nUser: %s\nAI: %s", history, query, finalResponse)
-
 			newSession := AISession{
 				History:     newHistory,
 				LastMsgID:   respPtr.ID,
 				LastUpdated: time.Now().Unix(),
 			}
-
 			jsonData, _ := json.Marshal(newSession)
 			rdb.Set(context.Background(), "ai_session:"+senderID, jsonData, 30*time.Minute)
 		}
@@ -189,6 +242,7 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 		}
 	}
 }
+
 
 
 // --- 👇 FIXED PRANK FUNCTION 👇 ---
