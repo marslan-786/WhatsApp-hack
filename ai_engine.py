@@ -42,8 +42,14 @@ async def transcribe(file: UploadFile = File(...)):
     return {"text": text, "language": info.language}
 
 @app.post("/speak")
-async def speak(text: str = Form(...), speaker_wav: UploadFile = File(...), lang: str = Form("ur")):
+async def speak(text: str = Form(...), speaker_wav: UploadFile = File(...), lang: str = Form("hi")): # ✅ Default changed to 'hi'
     """Text aur Reference Audio le kar Voice Note banaye ga"""
+    
+    # 🛑 Language Override (Safety Check)
+    # اگر غلطی سے 'ur' آ بھی جائے تو اسے 'hi' کر دو ورنہ کریش ہوگا
+    if lang == "ur":
+        lang = "hi"
+
     ref_path = os.path.join(TEMP_DIR, "ref_" + speaker_wav.filename)
     out_path = os.path.join(TEMP_DIR, f"out_{os.urandom(4).hex()}.wav")
     
@@ -52,15 +58,20 @@ async def speak(text: str = Form(...), speaker_wav: UploadFile = File(...), lang
         buffer.write(await speaker_wav.read())
         
     # Generate Voice
-    tts_engine.tts_to_file(
-        text=text,
-        file_path=out_path,
-        speaker_wav=ref_path,
-        language=lang # 'ur' for Urdu, 'en' for English
-    )
+    try:
+        tts_engine.tts_to_file(
+            text=text,
+            file_path=out_path,
+            speaker_wav=ref_path,
+            language=lang 
+        )
+    except Exception as e:
+        print(f"❌ TTS Error: {e}")
+        return {"error": str(e)}
     
     os.remove(ref_path) # Cleanup ref
     return FileResponse(out_path, media_type="audio/wav")
+
 
 if __name__ == "__main__":
     # Internal port 5000 par chalega

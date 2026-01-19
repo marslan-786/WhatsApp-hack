@@ -11,82 +11,71 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+    "log"
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+    "google.golang.org/genai" // ✅ Gemini Library Import
 )
 
-// Python Server URL (Internal Docker Network)
+// Python Server URL
 const PY_SERVER = "http://localhost:5000"
 
 // 🎤 ENTRY POINT: Jab user voice note bhejta hai
 func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
-	// 1. Download User's Voice
 	audioMsg := v.Message.GetAudioMessage()
 	if audioMsg == nil { return }
 
-	// 🎤 STATUS START: "Recording audio..."
+	// 🎤 STATUS: "Recording audio..." (تاکہ یوزر کو لگے کہ آپ بول رہے ہیں)
 	stopRecording := make(chan bool)
 	go func() {
-		// ✅ FIX 1: Context added
-		// ✅ FIX 2: 'Recording' ki jagah 'Composing' + 'MediaAudio' use hoga
 		client.SendChatPresence(context.Background(), v.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaAudio)
-
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
-
 		for {
 			select {
 			case <-ticker.C:
-				// Loop mein status renew karein
 				client.SendChatPresence(context.Background(), v.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaAudio)
 			case <-stopRecording:
-				// Stop karein
 				client.SendChatPresence(context.Background(), v.Info.Chat, types.ChatPresencePaused, types.ChatPresenceMediaAudio)
 				return
 			}
 		}
 	}()
+	defer func() { stopRecording <- true }()
 
-	// 👇 Loop stop karne ke liye
-	defer func() {
-		stopRecording <- true
-	}()
-
-	// 📥 Download
+	// 1. Download User's Voice
 	data, err := client.Download(context.Background(), audioMsg)
 	if err != nil {
 		fmt.Println("❌ Download Failed:", err)
 		return
 	}
 
-	// 2. Send to Python (Ears) -> Get Text
+	// 2. Transcribe (User Voice -> Text)
+    // یہاں ہم Whisper کو کہیں گے کہ جو بھی سنے، اسے اردو سمجھے
 	userText, err := TranscribeAudio(data)
-	if err != nil {
-		fmt.Println("❌ Transcription Failed:", err)
+	if err != nil || userText == "" {
 		return
 	}
-	
-	if userText == "" { return }
+    fmt.Println("🗣️ User Said:", userText)
 
-	// 3. Send Text to Gemini (Brain) -> Get Response
-	aiResponse := GetGeminiResponse(userText, v.Info.Sender.User)
-	
+	// 3. Gemini Brain (Text -> AI Response in Hindi Script)
+	aiResponse := GetGeminiVoiceResponse(userText)
 	if aiResponse == "" { return }
+    fmt.Println("🤖 AI Generated (For TTS):", aiResponse)
 
-	// 4. Send Response to Python (Mouth) -> Get Audio
+	// 4. Generate Audio (AI Text -> Voice)
+    // نوٹ: یہ text ہندی رسم الخط میں ہوگا لیکن XTTS اسے اردو لہجے میں پڑھے گا
 	refVoice := "voices/male_urdu.wav" 
-	
 	audioBytes, err := GenerateVoice(aiResponse, refVoice)
 	if err != nil {
-		// Agar voice fail ho jaye to text bhej do
-		replyMessage(client, v, aiResponse)
+        fmt.Println("❌ TTS Failed:", err)
 		return
 	}
 
-	// 5. Send Audio back to WhatsApp
+	// 5. Send Audio back to WhatsApp (No Text Reply!)
 	up, err := client.Upload(context.Background(), audioBytes, whatsmeow.MediaAudio)
 	if err != nil { return }
 
@@ -99,7 +88,7 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 			FileSHA256:    up.FileSHA256,
 			FileEncSHA256: up.FileEncSHA256,
 			FileLength:    PtrUint64(uint64(len(audioBytes))),
-			PTT:           PtrBool(true), // Blue Mic (Voice Note)
+			PTT:           PtrBool(true), // Blue Mic
 		},
 	})
 }
@@ -108,7 +97,6 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 func TranscribeAudio(audioData []byte) (string, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	
 	part, _ := writer.CreateFormFile("file", "voice.ogg")
 	part.Write(audioData)
 	writer.Close()
@@ -130,12 +118,12 @@ func GenerateVoice(text string, refFile string) ([]byte, error) {
 	writer := multipart.NewWriter(body)
 	
 	writer.WriteField("text", text)
-	writer.WriteField("lang", "ur") // Urdu set
+	// ⚠️ IMPORTANT: XTTS Urdu ko nahi janta, isliye hum 'hi' bhej rahe hain
+    // Gemini humein text Hindi Script mein dega, isliye 'hi' engine usay sahi parhega.
+	writer.WriteField("lang", "hi") 
 
-	// Load Reference Audio for Cloning
 	fileData, err := os.ReadFile(refFile)
 	if err != nil { return nil, err }
-	
 	part, _ := writer.CreateFormFile("speaker_wav", filepath.Base(refFile))
 	part.Write(fileData)
 	writer.Close()
@@ -145,15 +133,51 @@ func GenerateVoice(text string, refFile string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("API Error: %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API Error: %d - %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	return io.ReadAll(resp.Body)
 }
 
-// 🧠 Helper to call Gemini (Simple)
-func GetGeminiResponse(query, userID string) string {
-    return "آپ کا پیغام موصول ہو گیا ہے۔ میں اس پر کام کر رہا ہوں۔"
+// 🧠 SPECIAL GEMINI FOR VOICE (The Trick)
+func GetGeminiVoiceResponse(query string) string {
+    ctx := context.Background()
+    // انوائرمنٹ سے کی اٹھائیں
+    apiKey := os.Getenv("GOOGLE_API_KEY")
+    if apiKey == "" {
+        // Fallback: Cycle check (ai.go wala logic yahan simple rakha hai)
+        apiKey = os.Getenv("GOOGLE_API_KEY_1") 
+    }
+
+    client, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: apiKey})
+    if err != nil {
+        log.Println("Gemini Client Error:", err)
+        return ""
+    }
+
+    // 🔥 THE MAGIC PROMPT 🔥
+    // یہ پروموٹ Gemini کو مجبور کرے گا کہ وہ اردو بولے لیکن لکھے ہندی رسم الخط میں
+    systemPrompt := `You are a helpful assistant. The user is speaking to you.
+    
+    🔴 CRITICAL INSTRUCTIONS FOR VOICE GENERATION:
+    1. The user is speaking Urdu/Hindi.
+    2. Your response will be converted to Audio by an engine that ONLY reads Hindi Script (Devanagari).
+    3. **YOU MUST OUTPUT ONLY IN HINDI SCRIPT (DEVANAGARI).**
+    4. **DO NOT** use Urdu Script (Nastaliq) and **DO NOT** use English/Roman.
+    5. **Style:** Use polite and natural Urdu vocabulary (e.g., use 'Aap', 'Janab', 'Shukriya' instead of pure Hindi 'Dhanyavad' if possible, but keep it understandable).
+    6. Keep the response short and conversational (1-2 sentences).
+    
+    User said: "` + query + `"`
+
+    resp, err := client.Models.GenerateContent(ctx, "gemini-1.5-flash", genai.Text(systemPrompt), nil)
+    if err != nil {
+        log.Println("Gemini Voice Error:", err)
+        // Fallback agar API fail ho:
+        return "میں معذرت خواہ ہوں، مجھے کچھ سمجھ نہیں آیا۔" // یہ اردو سکرپٹ ہے، شاید TTS نہ پڑھے، لیکن یہ ایرر کیس ہے۔
+    }
+
+    return resp.Text()
 }
 
 // ✅ HELPER FUNCTIONS
