@@ -1,8 +1,6 @@
 import os
 import uvicorn
 import subprocess
-import edge_tts
-import asyncio
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from faster_whisper import WhisperModel
@@ -18,6 +16,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 print("⏳ [PYTHON] Loading Whisper (Ears)...")
 stt_model = WhisperModel("large-v3", device="cuda" if torch.cuda.is_available() else "cpu", compute_type="float16" if torch.cuda.is_available() else "int8")
 
+# Voice Config
 VOICE_NAME = "ur-PK-SalmanNeural"
 
 @app.post("/transcribe")
@@ -40,40 +39,51 @@ async def speak(text: str = Form(...), lang: str = Form("ur")):
     final_ogg_path = os.path.join(TEMP_DIR, f"out_{rand_id}.opus")
     
     try:
-        # 1. Generate Audio using Edge-TTS
-        communicate = edge_tts.Communicate(text, VOICE_NAME)
-        await communicate.save(raw_mp3_path)
+        # 🟢 STEP 1: Generate Audio using Edge-TTS CLI (Most Reliable Method)
+        # یہ کمانڈ لائن کے ذریعے چلے گا جو کہ زیادہ مستحکم ہے
+        cmd_tts = [
+            "edge-tts",
+            "--voice", VOICE_NAME,
+            "--text", text,
+            "--write-media", raw_mp3_path
+        ]
+        
+        # Run command and capture output for debugging
+        result = subprocess.run(cmd_tts, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"❌ Edge-TTS CLI Error: {result.stderr}")
+            return {"error": f"TTS Failed: {result.stderr}"}
 
-        # 2. Check if file exists and has size
+        # Check if file exists and has size
         if not os.path.exists(raw_mp3_path) or os.path.getsize(raw_mp3_path) == 0:
-            return {"error": "Edge-TTS generated empty file"}
+            print("❌ Error: Generated MP3 is empty or missing.")
+            return {"error": "Empty audio file generated"}
 
-        # 3. 🔥 CONVERT TO WHATSAPP FORMAT (Same as handleToPTT)
-        # -vn: No Video
-        # -c:a libopus: Codec
-        # -b:a 16k: Bitrate
-        # -ac 1: Mono Channel
-        subprocess.run([
+        # 🟢 STEP 2: Convert to WhatsApp OGG/Opus
+        cmd_ffmpeg = [
             "ffmpeg", "-y",
             "-i", raw_mp3_path,
             "-vn", 
             "-c:a", "libopus", 
-            "-b:a", "16k", 
+            "-b:a", "24k",  # Thora behtar bitrate
             "-ac", "1", 
             "-f", "ogg", 
             final_ogg_path
-        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        ]
+        
+        subprocess.run(cmd_ffmpeg, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     except Exception as e:
-        print(f"❌ Audio Gen Error: {e}")
+        print(f"❌ Critical Exception: {e}")
         return {"error": str(e)}
     
-    # Cleanup
+    # Cleanup MP3
     if os.path.exists(raw_mp3_path): os.remove(raw_mp3_path)
 
     # Final Check
     if not os.path.exists(final_ogg_path):
-        return {"error": "Conversion failed"}
+        return {"error": "Final conversion failed"}
 
     return FileResponse(final_ogg_path, media_type="audio/ogg")
 
