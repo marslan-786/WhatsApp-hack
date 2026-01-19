@@ -10,11 +10,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"time" // ✅ ٹائم امپورٹ کرنا مت بھولنا
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
-	"go.mau.fi/whatsmeow/types"        // ✅ ٹائپس امپورٹ
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
@@ -28,34 +28,34 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	if audioMsg == nil { return }
 
 	// 🎤 STATUS START: "Recording audio..."
-	// ہم ایک بیک گراؤنڈ لوپ چلا رہے ہیں جو یوزر کو دکھائے گا کہ بوٹ ریکارڈنگ کر رہا ہے
 	stopRecording := make(chan bool)
 	go func() {
+		// ✅ FIX 1: Context added
+		// ✅ FIX 2: 'Recording' ki jagah 'Composing' + 'MediaAudio' use hoga
+		client.SendChatPresence(context.Background(), v.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaAudio)
+
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
-		
-		// پہلی بار فوراً بھیجیں
-		client.SendChatPresence(v.Info.Chat, types.ChatPresenceRecording, types.ChatPresenceMediaAudio)
 
 		for {
 			select {
 			case <-ticker.C:
-				// ہر 5 سیکنڈ بعد دوبارہ بھیجیں تاکہ اسٹیٹس غائب نہ ہو
-				client.SendChatPresence(v.Info.Chat, types.ChatPresenceRecording, types.ChatPresenceMediaAudio)
+				// Loop mein status renew karein
+				client.SendChatPresence(context.Background(), v.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaAudio)
 			case <-stopRecording:
-				// کام ختم، نارمل ہو جائیں
-				client.SendChatPresence(v.Info.Chat, types.ChatPresencePaused, types.ChatPresenceMediaAudio)
+				// Stop karein
+				client.SendChatPresence(context.Background(), v.Info.Chat, types.ChatPresencePaused, types.ChatPresenceMediaAudio)
 				return
 			}
 		}
 	}()
 
-	// 👇 کام ختم ہونے پر لوپ روکنے کے لیے
+	// 👇 Loop stop karne ke liye
 	defer func() {
 		stopRecording <- true
 	}()
 
-	// 📥 ڈاؤن لوڈنگ
+	// 📥 Download
 	data, err := client.Download(context.Background(), audioMsg)
 	if err != nil {
 		fmt.Println("❌ Download Failed:", err)
@@ -151,7 +151,7 @@ func GenerateVoice(text string, refFile string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// 🧠 Helper to call Gemini (Copied logic from ai.go, simplified to return string)
+// 🧠 Helper to call Gemini (Simple)
 func GetGeminiResponse(query, userID string) string {
     return "آپ کا پیغام موصول ہو گیا ہے۔ میں اس پر کام کر رہا ہوں۔"
 }
