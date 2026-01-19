@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+//	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
