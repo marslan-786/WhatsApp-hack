@@ -39,18 +39,20 @@ COPY lid-extractor.js ./
 RUN npm install --production
 
 # ═══════════════════════════════════════════════════════════
-# 3. Stage: Final Runtime (PIPER TTS - PRO FIX)
+# 3. Stage: Final Runtime (PIPER TTS - HUGGINGFACE FIX)
 # ═══════════════════════════════════════════════════════════
 FROM python:3.10-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1
 
+# ✅ سسٹم ٹولز
 RUN apt-get update && apt-get install -y \
     ffmpeg imagemagick curl sqlite3 libsqlite3-0 nodejs npm \
     ca-certificates libgomp1 megatools libwebp-dev webp \
     libwebpmux3 libwebpdemux2 libsndfile1 tar \
     && rm -rf /var/lib/apt/lists/*
 
+# YT-DLP
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
@@ -60,11 +62,20 @@ RUN curl -L -o piper.tar.gz https://github.com/rhasspy/piper/releases/download/2
     && rm piper.tar.gz \
     && chmod +x /usr/local/bin/piper/piper
 
-# ✅ URDU MODEL (FIXED DOWNLOAD)
-# ہم 'resolve/main' والا لنک استعمال کر رہے ہیں جو ری ڈائریکٹ نہیں کرتا اور سیدھی فائل دیتا ہے
+# ✅ Install HuggingFace Hub (The Fix)
+RUN pip3 install huggingface_hub
+
+# ✅ URDU MODEL DOWNLOAD (PYTHON SCRIPT METHOD)
+# یہ طریقہ کبھی فیل نہیں ہوگا کیونکہ یہ API کے ذریعے ڈاؤن لوڈ کرتا ہے
 RUN mkdir -p /app/models \
-    && curl -L -o /app/models/ur_pk.onnx https://huggingface.co/rhasspy/piper-voices/resolve/main/ur/ur_pk/medium/ur_pk-medium.onnx \
-    && curl -L -o /app/models/ur_pk.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/main/ur/ur_pk/medium/ur_pk-medium.onnx.json
+    && python3 -c 'from huggingface_hub import hf_hub_download; \
+       import shutil; \
+       print("Downloading Model..."); \
+       m_path = hf_hub_download(repo_id="rhasspy/piper-voices", filename="ur/ur_pk/medium/ur_pk-medium.onnx"); \
+       c_path = hf_hub_download(repo_id="rhasspy/piper-voices", filename="ur/ur_pk/medium/ur_pk-medium.onnx.json"); \
+       shutil.copy(m_path, "/app/models/ur_pk.onnx"); \
+       shutil.copy(c_path, "/app/models/ur_pk.onnx.json"); \
+       print("✅ Model Downloaded Successfully!")'
 
 # ✅ Python Libraries
 RUN pip3 install --no-cache-dir \
