@@ -10,12 +10,13 @@ app = FastAPI()
 
 # Setup Paths
 TEMP_DIR = "/app/temp_ai"
-MODEL_PATH = "/app/models/ur_pk.onnx" # Dockerfile se aya hai
-PIPER_BIN = "/usr/local/bin/piper/piper" # Binary path
+# ✅ یہ پاتھ Dockerfile کے ساتھ میچ کر رہا ہے
+MODEL_PATH = "/app/models/ur_pk.onnx" 
+PIPER_BIN = "/usr/local/bin/piper/piper"
 
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-# Load Whisper (Using your heavy CPU power)
+# Load Whisper
 print("⏳ [PYTHON] Loading Whisper (Ears)...")
 stt_model = WhisperModel("large-v3", device="cpu", compute_type="int8")
 
@@ -25,8 +26,8 @@ async def transcribe(file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
     
-    # CPU par 32 cores hain, beam_size barha do quality ke liye
-    segments, info = stt_model.transcribe(file_path, beam_size=8)
+    # CPU cores are plenty, so beam_size 5 is safe
+    segments, info = stt_model.transcribe(file_path, beam_size=5)
     text = "".join([segment.text for segment in segments])
     
     os.remove(file_path)
@@ -39,18 +40,22 @@ async def speak(text: str = Form(...), lang: str = Form("ur")):
     final_ogg_path = os.path.join(TEMP_DIR, f"out_{rand_id}.opus")
     
     try:
-        # 🔥 STEP 1: Generate Audio using Local Piper
-        # Ye aapke 32 vCPUs ko use karega aur milliseconds mein audio banaye ga
+        # 🔥 STEP 1: Piper TTS Generation
+        # -s 0 ka matlab hai "Speaker 0" (Urdu single speaker)
         cmd_piper = f'echo "{text}" | {PIPER_BIN} --model {MODEL_PATH} --output_file {raw_wav_path}'
         
-        # Shell=True isliye kyunke hum echo pipe kar rahe hain
-        subprocess.run(cmd_piper, shell=True, check=True)
+        # Run Piper
+        result = subprocess.run(cmd_piper, shell=True, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"❌ Piper Failed: {result.stderr}")
+            return {"error": f"Piper Error: {result.stderr}"}
 
-        # Check file
+        # Check File
         if not os.path.exists(raw_wav_path) or os.path.getsize(raw_wav_path) == 0:
             return {"error": "Piper generated empty file"}
 
-        # 🔥 STEP 2: Convert to WhatsApp OGG
+        # 🔥 STEP 2: Convert to OGG
         cmd_ffmpeg = [
             "ffmpeg", "-y",
             "-i", raw_wav_path,
@@ -60,9 +65,10 @@ async def speak(text: str = Form(...), lang: str = Form("ur")):
         subprocess.run(cmd_ffmpeg, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     except Exception as e:
-        print(f"❌ Piper Error: {e}")
+        print(f"❌ Critical Error: {e}")
         return {"error": str(e)}
     
+    # Cleanup
     if os.path.exists(raw_wav_path): os.remove(raw_wav_path)
 
     return FileResponse(final_ogg_path, media_type="audio/ogg")

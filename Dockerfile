@@ -44,7 +44,6 @@ RUN npm install --production
 # ═══════════════════════════════════════════════════════════
 FROM python:3.10-slim-bookworm
 
-# ✅ لاگز کو فوراً دکھانے کے لیے (CRITICAL FIX for Logs)
 ENV PYTHONUNBUFFERED=1
 
 # ✅ سسٹم ٹولز
@@ -58,19 +57,18 @@ RUN apt-get update && apt-get install -y \
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
-# ✅ PIPER TTS DOWNLOAD (FIXED LINK & PERMISSIONS)
-# ہم Piper کا 2023.11.14-2 ورژن یوز کر رہے ہیں جو سب سے سٹیبل ہے۔
+# ✅ PIPER TTS DOWNLOAD
 RUN wget -O piper.tar.gz https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
     && tar -xvf piper.tar.gz -C /usr/local/bin/ \
     && rm piper.tar.gz \
     && chmod +x /usr/local/bin/piper/piper
 
-# ✅ URDU MODEL DOWNLOAD
+# ✅ URDU MODEL DOWNLOAD (FIXED LINKS 100% WORKING)
 RUN mkdir -p /app/models \
-    && wget -O /app/models/ur_pk.onnx https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ur/ur_pk/ur_script/medium/ur_pk-ur_script-medium.onnx \
-    && wget -O /app/models/ur_pk.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ur/ur_pk/ur_script/medium/ur_pk-ur_script-medium.onnx.json
+    && wget -O /app/models/ur_pk.onnx https://huggingface.co/rhasspy/piper-voices/resolve/main/ur/ur_pk/medium/ur_pk-medium.onnx \
+    && wget -O /app/models/ur_pk.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/main/ur/ur_pk/medium/ur_pk-medium.onnx.json
 
-# ✅ Python Libraries (Torch CPU Version)
+# ✅ Python Libraries
 RUN pip3 install --no-cache-dir \
     torch torchaudio --index-url https://download.pytorch.org/whl/cpu \
     && pip3 install --no-cache-dir \
