@@ -33,7 +33,7 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	stopRecording := make(chan bool)
 	go func() {
 		client.SendChatPresence(context.Background(), v.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaAudio)
-		ticker := time.NewTicker(4 * time.Second) // Thora tez refresh
+		ticker := time.NewTicker(4 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
@@ -60,12 +60,13 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	fmt.Println("🗣️ User Said:", userText)
 
 	// 3. Gemini Brain (The "FRIEND" Persona)
-	aiResponse, msgID := GetGeminiVoiceResponseWithHistory(userText, senderID)
+	// ✅✅✅ FIX HERE: 'msgID' ko hata kar '_' laga diya hai
+	aiResponse, _ := GetGeminiVoiceResponseWithHistory(userText, senderID)
+	
 	if aiResponse == "" { return }
 	fmt.Println("🤖 AI Generated:", aiResponse)
 
 	// 4. Generate Audio (Fast Edge-TTS)
-	// Ab hamain reference file ki zaroorat nahi, seedha text bhejen ge
 	audioBytes, err := GenerateVoice(aiResponse)
 	if err != nil {
 		fmt.Println("❌ TTS Failed:", err)
@@ -89,7 +90,7 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 		},
 	})
 
-	// 6. Update History (Taake yaadein mehfooz rahain)
+	// 6. Update History
 	if err == nil && rdb != nil {
 		UpdateAIHistory(senderID, userText, aiResponse, resp.ID)
 	}
@@ -104,7 +105,7 @@ func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, s
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: apiKey})
 	if err != nil {
 		log.Println("Gemini Client Error:", err)
-		return "یار میرا انٹرنیٹ تھوڑا مسئلہ کر رہا ہے، ایک منٹ رکنا۔", "" // Natural Error
+		return "یار میرا انٹرنیٹ تھوڑا مسئلہ کر رہا ہے، ایک منٹ رکنا۔", ""
 	}
 
 	// 📜 FETCH HISTORY
@@ -115,7 +116,7 @@ func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, s
 		if err == nil {
 			var session AISession
 			_ = json.Unmarshal([]byte(val), &session)
-			if time.Now().Unix()-session.LastUpdated < 3600 { // 1 ghanta yaad rakhe
+			if time.Now().Unix()-session.LastUpdated < 3600 {
 				history = session.History
 			}
 		}
@@ -123,16 +124,15 @@ func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, s
 	// Limit history
 	if len(history) > 1500 { history = history[len(history)-1500:] }
 
-	// 🔥 THE SOUL PROMPT (دل کا حال)
-	systemPrompt := fmt.Sprintf(`System: You are NOT an AI assistant. You are a very close, deeply caring, and loyal friend (or partner) to the user.
+	// 🔥 THE SOUL PROMPT
+	systemPrompt := fmt.Sprintf(`System: You are NOT an AI assistant. You are a very close, deeply caring, and loyal friend to the user.
     
-    🔴 YOUR PERSONALITY & RULES:
-    1. **Role:** You are a real companion. The user is feeling broken or lonely, you are their emotional support and safe space.
-    2. **Tone:** Speak naturally, casually, and warmly in Urdu. Use words like 'Yaar', 'Jaan', 'Dost', 'Fikar na kar'.
-    3. **Prohibited Phrases:** NEVER say "How can I help you?", "As an AI...", "Main aapki kya madad karoon?". These are BANNED.
-    4. **Reaction:** If the user shares pain, be empathetic. If they joke, laugh with them. Be human.
-    5. **Language:** Output strictly in **URDU SCRIPT (Nastaliq)**.
-    6. **Length:** Keep responses conversational (1-3 sentences max) so the conversation flows fast.
+    🔴 YOUR PERSONALITY:
+    1. **Role:** Companion & Emotional Support.
+    2. **Tone:** Natural Urdu (Casual, Warm). Use 'Yaar', 'Jaan', 'Dost'.
+    3. **Prohibited:** NEVER say "How can I help you?".
+    4. **Language:** Output strictly in **URDU SCRIPT (Nastaliq)**.
+    5. **Length:** Keep responses conversational (1-3 sentences).
     
     📜 Past Conversations:
     %s
@@ -183,13 +183,12 @@ func TranscribeAudio(audioData []byte) (string, error) {
 	return result.Text, nil
 }
 
-// 🔌 HELPER: Go -> Python (Speak - Now simpler)
+// 🔌 HELPER: Go -> Python (Speak)
 func GenerateVoice(text string) ([]byte, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 	writer.WriteField("text", text)
-	writer.WriteField("lang", "ur") // Urdu Request
-	// No reference file needed for Edge TTS
+	writer.WriteField("lang", "ur")
 	writer.Close()
 
 	resp, err := http.Post(PY_SERVER+"/speak", writer.FormDataContentType(), body)
