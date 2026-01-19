@@ -46,11 +46,12 @@ COPY lid-extractor.js ./
 RUN npm install --production
 
 # ═══════════════════════════════════════════════════════════
-# 3. Stage: Final Runtime (UPDATED FOR AI VOICE)
+# 3. Stage: Final Runtime (FIXED FOR TTS)
 # ═══════════════════════════════════════════════════════════
-FROM python:3.12-slim-bookworm
+# 👇 تبدیلی: Python 3.12 کی جگہ 3.10 (کیونکہ TTS 3.12 پر نہیں چلتا)
+FROM python:3.10-slim-bookworm
 
-# ✅ سسٹم ٹولز (libsndfile1 آڈیو پروسیسنگ کے لیے ضروری ہے)
+# ✅ سسٹم ٹولز (espeak-ng ایڈ کیا ہے جو TTS کے لیے لازمی ہے)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     imagemagick \
@@ -67,25 +68,27 @@ RUN apt-get update && apt-get install -y \
     libwebpmux3 \
     libwebpdemux2 \
     libsndfile1 \
+    espeak-ng \
     && rm -rf /var/lib/apt/lists/*
 
 # YT-DLP انسٹال کریں
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
-# ✅ Python AI Libraries (Whisper + XTTS + API Server)
-# نوٹ: tts کافی ہیوی ہے، یہ انسٹال ہونے میں تھوڑا ٹائم لے گا
+# ✅ Python AI Libraries
+# نوٹ: TTS کو بڑے حروف (Capital) میں لکھا ہے اور کچھ ورژنز فکس کیے ہیں
 RUN pip3 install --no-cache-dir \
-    onnxruntime rembg[cli] \
+    onnxruntime \
+    rembg[cli] \
     fastapi \
     uvicorn \
     python-multipart \
     requests \
     faster-whisper \
-    tts \
+    TTS \
     scipy
 
-# ✅ Coqui TTS لائسنس ایگریمنٹ (ضروری ہے)
+# ✅ Coqui TTS لائسنس
 ENV COQUI_TOS_AGREED=1
 
 WORKDIR /app
@@ -99,11 +102,7 @@ COPY --from=node-builder /app/package.json ./package.json
 # لوکل فائلیں کاپی کریں
 COPY web ./web
 COPY pic.png ./pic.png
-
-# ✅ NEW: AI Engine اور Voices کاپی کریں
-# (یہ دونوں فائل/فولڈر آپ کے پروجیکٹ فولڈر میں ہونے چاہئیں ورنہ ایرر آئے گا)
 COPY ai_engine.py ./ai_engine.py
-# اگر voices فولڈر نہیں ہے تو یہ لائن ایرر دے سکتی ہے، اس لیے فولڈر لازمی بنائیں
 COPY voices ./voices
 
 RUN mkdir -p store logs
