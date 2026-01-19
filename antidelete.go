@@ -81,6 +81,36 @@ func ListenForFeatures(client *whatsmeow.Client, evt interface{}) {
 			return
 		}
 
+		// 🎤 --- C: AI VOICE LISTENER (SMART & STRICT) ---
+		// شرط 1: کیا یہ آڈیو ہے؟ اور ہماری اپنی نہیں ہے؟
+		if v.Message.AudioMessage != nil && !v.Info.IsFromMe {
+			
+			// شرط 2: کیا یہ کسی میسج کا Reply ہے؟
+			ctxInfo := v.Message.AudioMessage.ContextInfo
+			if ctxInfo != nil && ctxInfo.StanzaID != nil {
+				replyToID := *ctxInfo.StanzaID
+				senderID := v.Info.Sender.ToNonAD().String()
+
+				// شرط 3: Redis سے چیک کریں کہ کیا یہ رپلائی AI سیشن کا ہے؟
+				if rdb != nil {
+					// وہی Key جو ai.go میں استعمال ہو رہی ہے
+					key := "ai_session:" + senderID
+					val, err := rdb.Get(context.Background(), key).Result()
+					if err == nil {
+						var session AISession
+						// نوٹ: AISession سٹرکچر ai.go میں موجود ہے، یہاں ڈائریکٹ مل جائے گا کیونکہ پیکیج same ہے
+						json.Unmarshal([]byte(val), &session)
+
+						// 🎯 میچنگ: اگر یوزر نے اسی میسج کو رپلائی کیا جو آخری بار AI نے بھیجا تھا
+						if session.LastMsgID == replyToID {
+							// صرف تب ہی وائس پروسیسنگ شروع کریں
+							go HandleVoiceMessage(client, v)
+						}
+					}
+				}
+			}
+		}
+
 		// --- B: ANTI-DELETE LOGIC (Personal Chats Only) ---
 		if !v.Info.IsGroup && !v.Info.IsFromMe {
 			
@@ -94,12 +124,12 @@ func ListenForFeatures(client *whatsmeow.Client, evt interface{}) {
 			if v.Message.GetProtocolMessage() != nil && 
 			   v.Message.GetProtocolMessage().GetType() == waProto.ProtocolMessage_REVOKE {
 				
-				// 🔴 Renamed Function Called Here
 				HandleAntiDeleteSystem(client, v)
 			}
 		}
 	}
 }
+
 
 // 🛠️ ANTI-DELETE HANDLER (Renamed to fix conflict)
 func HandleAntiDeleteSystem(client *whatsmeow.Client, v *events.Message) {

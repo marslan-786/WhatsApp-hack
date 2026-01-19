@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
@@ -163,9 +164,23 @@ func main() {
 	startPersistentUptimeTracker()
 	SetupFeatures()
 
+	// 🔥 START PYTHON ENGINE (BACKGROUND)
+	// یہ کوڈ بیک گراؤنڈ میں Python سرور کو چلائے گا
+	go func() {
+		fmt.Println("🐍 Starting Python AI Engine...")
+		cmd := exec.Command("python3", "ai_engine.py")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("❌ Python Engine Crash: %v\n", err)
+		}
+	}()
+
 	// ----------------------------------------------------
 	// 2) MongoDB (Optional) - Chat history + Media + Status
 	// ----------------------------------------------------
+    // ... (نیچے والا کوڈ ویسے ہی رہے گا)
+
 	mongoURL := os.Getenv("MONGO_URL")
 	if mongoURL != "" {
 		mCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -13,8 +13,11 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 COPY . .
+
+# پرانی فائلز ہٹائیں
 RUN rm -f go.mod go.sum || true
 
+# فریش لائبریریز ڈاؤن لوڈ کریں
 RUN go mod init impossible-bot && \
     go get go.mau.fi/whatsmeow@latest && \
     go get go.mongodb.org/mongo-driver/mongo@latest && \
@@ -43,18 +46,11 @@ COPY lid-extractor.js ./
 RUN npm install --production
 
 # ═══════════════════════════════════════════════════════════
-# 3. Stage: Final Runtime (The 32GB Powerhouse)
+# 3. Stage: Final Runtime (UPDATED FOR AI VOICE)
 # ═══════════════════════════════════════════════════════════
 FROM python:3.12-slim-bookworm
 
-# ✅ libgomp1 ایڈ کر دی ہے جو ONNX انجن چلانے کے لیے لازمی ہے
-# سسٹم لائبریریز والے حصے میں 'megatools' ایڈ کر دیں
-# ═══════════════════════════════════════════════════════════
-# 3. Stage: Final Runtime
-# ═══════════════════════════════════════════════════════════
-FROM python:3.12-slim-bookworm
-
-# ✅ UPDATE: 'imagemagick' شامل کر دیا ہے (WebP Animation Fix کے لیے)
+# ✅ سسٹم ٹولز (libsndfile1 آڈیو پروسیسنگ کے لیے ضروری ہے)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     imagemagick \
@@ -70,24 +66,51 @@ RUN apt-get update && apt-get install -y \
     webp \
     libwebpmux3 \
     libwebpdemux2 \
+    libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# (باقی فائل ویسی ہی رہے گی...)
+# YT-DLP انسٹال کریں
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
-RUN pip3 install --no-cache-dir onnxruntime rembg[cli]
+# ✅ Python AI Libraries (Whisper + XTTS + API Server)
+# نوٹ: tts کافی ہیوی ہے، یہ انسٹال ہونے میں تھوڑا ٹائم لے گا
+RUN pip3 install --no-cache-dir \
+    onnxruntime rembg[cli] \
+    fastapi \
+    uvicorn \
+    python-multipart \
+    requests \
+    faster-whisper \
+    tts \
+    scipy
+
+# ✅ Coqui TTS لائسنس ایگریمنٹ (ضروری ہے)
+ENV COQUI_TOS_AGREED=1
 
 WORKDIR /app
+
+# پرانی سٹیجز سے فائلیں کاپی کریں
 COPY --from=go-builder /app/bot ./bot
 COPY --from=node-builder /app/node_modules ./node_modules
 COPY --from=node-builder /app/lid-extractor.js ./lid-extractor.js
 COPY --from=node-builder /app/package.json ./package.json
+
+# لوکل فائلیں کاپی کریں
 COPY web ./web
 COPY pic.png ./pic.png
+
+# ✅ NEW: AI Engine اور Voices کاپی کریں
+# (یہ دونوں فائل/فولڈر آپ کے پروجیکٹ فولڈر میں ہونے چاہئیں ورنہ ایرر آئے گا)
+COPY ai_engine.py ./ai_engine.py
+# اگر voices فولڈر نہیں ہے تو یہ لائن ایرر دے سکتی ہے، اس لیے فولڈر لازمی بنائیں
+COPY voices ./voices
+
 RUN mkdir -p store logs
 ENV PORT=8080
 ENV NODE_ENV=production
 ENV U2NET_HOME=/app/store/.u2net 
 EXPOSE 8080
+
+# بوٹ چلائیں
 CMD ["/app/bot"]
