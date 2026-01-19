@@ -12,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-	"strings"
+	// "strings" // ❌ ہٹا دیا کیونکہ استعمال نہیں ہو رہا تھا
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -66,7 +66,8 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	fmt.Println("🗣️ User Said:", userText)
 
 	// 3. Gemini Brain (With History & 2.5 Flash)
-	aiResponse, msgID := GetGeminiVoiceResponseWithHistory(userText, senderID)
+	// ✅ FIX: 'msgID' ko '_' kar diya kyunke use nahi ho raha tha
+	aiResponse, _ := GetGeminiVoiceResponseWithHistory(userText, senderID)
 	if aiResponse == "" {
 		return
 	}
@@ -86,7 +87,8 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 		return
 	}
 
-	resp, _ := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+	// ✅ FIX: Error handling durust kar di (resp != nil wala masla hal)
+	resp, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		AudioMessage: &waProto.AudioMessage{
 			URL:           PtrString(up.URL),
 			DirectPath:    PtrString(up.DirectPath),
@@ -100,8 +102,8 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	})
 
 	// 💾 6. UPDATE REDIS HISTORY (Crucial Step)
-	// اگر میسج چلا گیا ہے تو ہسٹری اپڈیٹ کریں تاکہ ٹیکسٹ چیٹ کو بھی یاد رہے
-	if resp != nil && rdb != nil {
+	// ✅ FIX: ab hum 'err == nil' check kar rahe hain, kyunke struct nil nahi ho sakta
+	if err == nil && rdb != nil {
 		UpdateAIHistory(senderID, userText, aiResponse, resp.ID)
 	}
 }
@@ -161,8 +163,6 @@ func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, s
 
 	if err != nil {
 		log.Println("Gemini Voice Error:", err)
-		// Fallback Fallback logic for Key Rotation could be added here if needed
-		// For now returning safe error in Hindi script
 		return "माफ़ कीजिये, मुझे आपकी बात समझ नहीं आई।", ""
 	}
 
@@ -184,8 +184,6 @@ func UpdateAIHistory(senderID, userQuery, aiResponse, msgID string) {
 	}
 
 	// نیا ڈیٹا جوڑیں
-	// نوٹ: ہم ہسٹری میں بھی ہندی اسکرپٹ ہی محفوظ کر رہے ہیں، جو کہ ٹھیک ہے۔
-	// Gemini اگلی بار اسے پڑھ کر سمجھ جائے گا کہ کیا بات ہوئی تھی۔
 	newHistory := fmt.Sprintf("%s\nUser: %s\nAI: %s", history, userQuery, aiResponse)
 
 	newSession := AISession{
