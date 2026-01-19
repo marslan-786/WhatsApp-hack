@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time" // ✅ ٹائم امپورٹ کرنا مت بھولنا
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/types"        // ✅ ٹائپس امپورٹ
 	"go.mau.fi/whatsmeow/types/events"
 )
 
@@ -25,6 +27,35 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	audioMsg := v.Message.GetAudioMessage()
 	if audioMsg == nil { return }
 
+	// 🎤 STATUS START: "Recording audio..."
+	// ہم ایک بیک گراؤنڈ لوپ چلا رہے ہیں جو یوزر کو دکھائے گا کہ بوٹ ریکارڈنگ کر رہا ہے
+	stopRecording := make(chan bool)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		
+		// پہلی بار فوراً بھیجیں
+		client.SendChatPresence(v.Info.Chat, types.ChatPresenceRecording, types.ChatPresenceMediaAudio)
+
+		for {
+			select {
+			case <-ticker.C:
+				// ہر 5 سیکنڈ بعد دوبارہ بھیجیں تاکہ اسٹیٹس غائب نہ ہو
+				client.SendChatPresence(v.Info.Chat, types.ChatPresenceRecording, types.ChatPresenceMediaAudio)
+			case <-stopRecording:
+				// کام ختم، نارمل ہو جائیں
+				client.SendChatPresence(v.Info.Chat, types.ChatPresencePaused, types.ChatPresenceMediaAudio)
+				return
+			}
+		}
+	}()
+
+	// 👇 کام ختم ہونے پر لوپ روکنے کے لیے
+	defer func() {
+		stopRecording <- true
+	}()
+
+	// 📥 ڈاؤن لوڈنگ
 	data, err := client.Download(context.Background(), audioMsg)
 	if err != nil {
 		fmt.Println("❌ Download Failed:", err)
@@ -59,7 +90,6 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	up, err := client.Upload(context.Background(), audioBytes, whatsmeow.MediaAudio)
 	if err != nil { return }
 
-	// ✅ FIXED: Using helper functions instead of proto.String
 	client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		AudioMessage: &waProto.AudioMessage{
 			URL:           PtrString(up.URL),
@@ -123,12 +153,10 @@ func GenerateVoice(text string, refFile string) ([]byte, error) {
 
 // 🧠 Helper to call Gemini (Copied logic from ai.go, simplified to return string)
 func GetGeminiResponse(query, userID string) string {
-    // Yahan aap apni ai.go wali logic use kar sakte hain
-    // Filhal testing ke liye dummy return kar raha hun:
     return "آپ کا پیغام موصول ہو گیا ہے۔ میں اس پر کام کر رہا ہوں۔"
 }
 
-// ✅ HELPER FUNCTIONS (To Fix proto.String Errors)
+// ✅ HELPER FUNCTIONS
 func PtrString(s string) *string { return &s }
 func PtrBool(b bool) *bool       { return &b }
 func PtrUint64(i uint64) *uint64 { return &i }

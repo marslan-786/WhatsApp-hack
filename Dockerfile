@@ -75,9 +75,14 @@ RUN apt-get update && apt-get install -y \
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
-# ✅ Python AI Libraries
-# نوٹ: TTS کو بڑے حروف (Capital) میں لکھا ہے اور کچھ ورژنز فکس کیے ہیں
+# ... (اوپر والا حصہ ویسا ہی رہے گا)
+
+# ✅ Python AI Libraries (FIXED VERSIONS)
+# ہم transformers کو 4.42.4 پر فکس کر رہے ہیں کیونکہ نیا ورژن BeamSearchScorer کا ایرر دیتا ہے
 RUN pip3 install --no-cache-dir \
+    torch torchaudio --index-url https://download.pytorch.org/whl/cu118 || true \
+    && pip3 install --no-cache-dir \
+    transformers==4.42.4 \
     onnxruntime \
     rembg[cli] \
     fastapi \
@@ -87,6 +92,8 @@ RUN pip3 install --no-cache-dir \
     faster-whisper \
     TTS \
     scipy
+
+# ... (باقی نیچے والا کوڈ ویسا ہی رہے گا)
 
 # ✅ Coqui TTS لائسنس
 ENV COQUI_TOS_AGREED=1
