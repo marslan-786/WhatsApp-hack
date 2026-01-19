@@ -10,10 +10,8 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 COPY . .
 
-# پرانی فائلز ہٹائیں
+# صفائی اور فریش انسٹال
 RUN rm -f go.mod go.sum || true
-
-# فریش لائبریریز ڈاؤن لوڈ کریں
 RUN go mod init impossible-bot && \
     go get go.mau.fi/whatsmeow@latest && \
     go get go.mongodb.org/mongo-driver/mongo@latest && \
@@ -42,33 +40,37 @@ COPY lid-extractor.js ./
 RUN npm install --production
 
 # ═══════════════════════════════════════════════════════════
-# 3. Stage: Final Runtime (PIPER TTS - CPU OPTIMIZED)
+# 3. Stage: Final Runtime (PIPER TTS - CPU BEAST MODE)
 # ═══════════════════════════════════════════════════════════
 FROM python:3.10-slim-bookworm
+
+# ✅ لاگز کو فوراً دکھانے کے لیے (CRITICAL FIX for Logs)
+ENV PYTHONUNBUFFERED=1
 
 # ✅ سسٹم ٹولز
 RUN apt-get update && apt-get install -y \
     ffmpeg imagemagick curl sqlite3 libsqlite3-0 nodejs npm \
     ca-certificates libgomp1 megatools libwebp-dev webp \
-    libwebpmux3 libwebpdemux2 libsndfile1 wget \
+    libwebpmux3 libwebpdemux2 libsndfile1 wget tar \
     && rm -rf /var/lib/apt/lists/*
 
 # YT-DLP
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
-# ✅ PIPER TTS DOWNLOAD (The Magic)
-# 1. Download Piper Binary
-RUN wget -O piper.tar.gz https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_amd64.tar.gz \
+# ✅ PIPER TTS DOWNLOAD (FIXED LINK & PERMISSIONS)
+# ہم Piper کا 2023.11.14-2 ورژن یوز کر رہے ہیں جو سب سے سٹیبل ہے۔
+RUN wget -O piper.tar.gz https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
     && tar -xvf piper.tar.gz -C /usr/local/bin/ \
-    && rm piper.tar.gz
+    && rm piper.tar.gz \
+    && chmod +x /usr/local/bin/piper/piper
 
-# 2. Download Urdu Model (High Quality) inside the image
+# ✅ URDU MODEL DOWNLOAD
 RUN mkdir -p /app/models \
     && wget -O /app/models/ur_pk.onnx https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ur/ur_pk/ur_script/medium/ur_pk-ur_script-medium.onnx \
     && wget -O /app/models/ur_pk.onnx.json https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/ur/ur_pk/ur_script/medium/ur_pk-ur_script-medium.onnx.json
 
-# ✅ Python Libraries
+# ✅ Python Libraries (Torch CPU Version)
 RUN pip3 install --no-cache-dir \
     torch torchaudio --index-url https://download.pytorch.org/whl/cpu \
     && pip3 install --no-cache-dir \
