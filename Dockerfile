@@ -39,7 +39,7 @@ COPY lid-extractor.js ./
 RUN npm install --production
 
 # ═══════════════════════════════════════════════════════════
-# 3. Stage: Final Runtime (PIPER TTS - GITHUB FIX)
+# 3. Stage: Final Runtime (gTTS - GUARANTEED)
 # ═══════════════════════════════════════════════════════════
 FROM python:3.10-slim-bookworm
 
@@ -48,31 +48,19 @@ ENV PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y \
     ffmpeg imagemagick curl sqlite3 libsqlite3-0 nodejs npm \
     ca-certificates libgomp1 megatools libwebp-dev webp \
-    libwebpmux3 libwebpdemux2 libsndfile1 tar \
+    libwebpmux3 libwebpdemux2 libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# YT-DLP
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
-# ✅ PIPER BINARY
-RUN curl -L -o piper.tar.gz https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
-    && tar -xvf piper.tar.gz -C /usr/local/bin/ \
-    && rm piper.tar.gz \
-    && chmod +x /usr/local/bin/piper/piper
-
-# ✅ URDU MODEL (GITHUB MIRROR LINK - 100% WORKING)
-# Hugging Face kabhi kabhi fail hota hai, isliye hum Github release se utha rahe hain
-RUN mkdir -p /app/models \
-    && curl -L -o /app/models/ur_pk.onnx "https://github.com/rhasspy/piper/releases/download/v0.0.2/ur_pk-ur_script-medium.onnx" \
-    && curl -L -o /app/models/ur_pk.onnx.json "https://github.com/rhasspy/piper/releases/download/v0.0.2/ur_pk-ur_script-medium.onnx.json"
-
-# ✅ Python Libraries
+# ✅ Python Libraries (gTTS Added)
+# gTTS = Google Text-to-Speech (Simple & Reliable)
 RUN pip3 install --no-cache-dir \
     torch torchaudio --index-url https://download.pytorch.org/whl/cpu \
     && pip3 install --no-cache-dir \
     fastapi uvicorn python-multipart requests \
-    faster-whisper scipy
+    faster-whisper scipy gTTS
 
 WORKDIR /app
 

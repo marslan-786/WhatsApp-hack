@@ -4,15 +4,12 @@ import subprocess
 from fastapi import FastAPI, UploadFile, File, Form, Response
 from fastapi.responses import FileResponse
 from faster_whisper import WhisperModel
+from gtts import gTTS # ✅ Google TTS
 import torch
 
 app = FastAPI()
 
-# Setup Paths
 TEMP_DIR = "/app/temp_ai"
-MODEL_PATH = "/app/models/ur_pk.onnx" 
-PIPER_BIN = "/usr/local/bin/piper/piper"
-
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 print("⏳ [PYTHON] Loading Whisper (Ears)...")
@@ -33,37 +30,32 @@ async def transcribe(file: UploadFile = File(...)):
 @app.post("/speak")
 async def speak(text: str = Form(...), lang: str = Form("ur")):
     rand_id = os.urandom(4).hex()
-    raw_wav_path = os.path.join(TEMP_DIR, f"raw_{rand_id}.wav")
+    raw_mp3_path = os.path.join(TEMP_DIR, f"raw_{rand_id}.mp3")
     final_ogg_path = os.path.join(TEMP_DIR, f"out_{rand_id}.opus")
     
     try:
-        # 🔥 Piper Generation
-        cmd_piper = f'echo "{text}" | {PIPER_BIN} --model {MODEL_PATH} --output_file {raw_wav_path}'
-        
-        result = subprocess.run(cmd_piper, shell=True, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            print(f"❌ Piper Failed: {result.stderr}")
-            # ✅ Return 500 so Go knows it failed
-            return Response(content=f"Piper Error: {result.stderr}", status_code=500)
+        # 🔥 STEP 1: Google TTS Generation
+        # Ye Google ke servers use karega, jo 99.9% reliable hain
+        tts = gTTS(text=text, lang='ur', slow=False)
+        tts.save(raw_mp3_path)
 
-        if not os.path.exists(raw_wav_path) or os.path.getsize(raw_wav_path) == 0:
-            return Response(content="Piper generated empty file", status_code=500)
+        if not os.path.exists(raw_mp3_path) or os.path.getsize(raw_mp3_path) == 0:
+            return Response(content="gTTS generated empty file", status_code=500)
 
-        # 🔥 FFmpeg Conversion
+        # 🔥 STEP 2: Convert to WhatsApp OGG
         cmd_ffmpeg = [
             "ffmpeg", "-y",
-            "-i", raw_wav_path,
+            "-i", raw_mp3_path,
             "-vn", "-c:a", "libopus", "-b:a", "24k", "-ac", "1", "-f", "ogg", 
             final_ogg_path
         ]
         subprocess.run(cmd_ffmpeg, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     except Exception as e:
-        print(f"❌ Critical Error: {e}")
+        print(f"❌ gTTS Error: {e}")
         return Response(content=str(e), status_code=500)
     
-    if os.path.exists(raw_wav_path): os.remove(raw_wav_path)
+    if os.path.exists(raw_mp3_path): os.remove(raw_mp3_path)
 
     return FileResponse(final_ogg_path, media_type="audio/ogg")
 
