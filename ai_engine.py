@@ -10,28 +10,22 @@ import torch
 
 app = FastAPI()
 
-# 1. SETUP PATHS
+# Setup Paths
 TEMP_DIR = "/app/temp_ai"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-# 2. LOAD WHISPER (Ears) - سننے کے لیے یہ ابھی بھی بیسٹ ہے
+# Load Whisper
 print("⏳ [PYTHON] Loading Whisper (Ears)...")
-# CPU پر چلنے کے لیے int8 استعمال کر رہے ہیں تاکہ تیز ہو
 stt_model = WhisperModel("large-v3", device="cuda" if torch.cuda.is_available() else "cpu", compute_type="float16" if torch.cuda.is_available() else "int8")
 
-# 3. VOICE CONFIG (Urdu - Pakistan)
-# Male: "ur-PK-SalmanNeural" | Female: "ur-PK-UzmaNeural"
-# چونکہ آپ دوست/پارٹنر چاہتے ہیں، میں فی الحال 'Salman' رکھ رہا ہوں، اگر فیمیل چاہیے تو 'Uzma' کر دینا۔
 VOICE_NAME = "ur-PK-SalmanNeural"
 
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)):
-    """User ki voice sun kar text mein badlo"""
     file_path = os.path.join(TEMP_DIR, file.filename)
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
     
-    # Transcribe
     segments, info = stt_model.transcribe(file_path, beam_size=5)
     text = "".join([segment.text for segment in segments])
     
@@ -40,24 +34,33 @@ async def transcribe(file: UploadFile = File(...)):
 
 @app.post("/speak")
 async def speak(text: str = Form(...), lang: str = Form("ur")):
-    """
-    Super Fast Cloud TTS Generation
-    """
-    # Random filenames to avoid collision
+    # Random filenames
     rand_id = os.urandom(4).hex()
     raw_mp3_path = os.path.join(TEMP_DIR, f"raw_{rand_id}.mp3")
     final_ogg_path = os.path.join(TEMP_DIR, f"out_{rand_id}.opus")
     
     try:
-        # 1. Generate Audio using Edge-TTS (Cloud) - MilliSeconds mein hoga!
+        # 1. Generate Audio using Edge-TTS
         communicate = edge_tts.Communicate(text, VOICE_NAME)
         await communicate.save(raw_mp3_path)
 
-        # 2. Convert to WhatsApp Opus (FFMPEG) - Taake 'Blue Mic' aaye aur play ho
+        # 2. Check if file exists and has size
+        if not os.path.exists(raw_mp3_path) or os.path.getsize(raw_mp3_path) == 0:
+            return {"error": "Edge-TTS generated empty file"}
+
+        # 3. 🔥 CONVERT TO WHATSAPP FORMAT (Same as handleToPTT)
+        # -vn: No Video
+        # -c:a libopus: Codec
+        # -b:a 16k: Bitrate
+        # -ac 1: Mono Channel
         subprocess.run([
             "ffmpeg", "-y",
             "-i", raw_mp3_path,
-            "-vn", "-c:a", "libopus", "-b:a", "16k", "-ac", "1", "-f", "ogg",
+            "-vn", 
+            "-c:a", "libopus", 
+            "-b:a", "16k", 
+            "-ac", "1", 
+            "-f", "ogg", 
             final_ogg_path
         ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -65,8 +68,12 @@ async def speak(text: str = Form(...), lang: str = Form("ur")):
         print(f"❌ Audio Gen Error: {e}")
         return {"error": str(e)}
     
-    # Cleanup MP3 (We only need Opus)
+    # Cleanup
     if os.path.exists(raw_mp3_path): os.remove(raw_mp3_path)
+
+    # Final Check
+    if not os.path.exists(final_ogg_path):
+        return {"error": "Conversion failed"}
 
     return FileResponse(final_ogg_path, media_type="audio/ogg")
 

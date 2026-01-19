@@ -19,19 +19,16 @@ import (
 	"google.golang.org/genai"
 )
 
-// Python Server URL
 const PY_SERVER = "http://localhost:5000"
 
-// 🎤 ENTRY POINT: Jab user voice note bhejta hai
 func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
-	fmt.Println("🚀 AI Engine: Starting Voice Processing...") // LOG 1
+	fmt.Println("🚀 AI Engine: Starting Voice Processing...")
 
 	audioMsg := v.Message.GetAudioMessage()
 	if audioMsg == nil { return }
 
 	senderID := v.Info.Sender.ToNonAD().String()
 
-	// 🎤 STATUS START
 	stopRecording := make(chan bool)
 	go func() {
 		client.SendChatPresence(context.Background(), v.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaAudio)
@@ -50,7 +47,7 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	defer func() { stopRecording <- true }()
 
 	// 1. Download
-	fmt.Println("📥 AI Engine: Downloading Audio...") // LOG 2
+	fmt.Println("📥 AI Engine: Downloading Audio...")
 	data, err := client.Download(context.Background(), audioMsg)
 	if err != nil {
 		fmt.Println("❌ Download Failed:", err)
@@ -58,31 +55,33 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 
 	// 2. Transcribe
-	fmt.Println("👂 AI Engine: Transcribing Audio...") // LOG 3
+	fmt.Println("👂 AI Engine: Transcribing Audio...")
 	userText, err := TranscribeAudio(data)
 	if err != nil || userText == "" { 
 		fmt.Println("❌ Transcribe Failed:", err)
 		return 
 	}
-	fmt.Println("🗣️ User Said:", userText) // LOG 4
+	fmt.Println("🗣️ User Said:", userText)
 
 	// 3. Gemini Brain
-	fmt.Println("🧠 AI Engine: Thinking...") // LOG 5
+	fmt.Println("🧠 AI Engine: Thinking...")
 	aiResponse, _ := GetGeminiVoiceResponseWithHistory(userText, senderID)
 	
 	if aiResponse == "" { return }
-	fmt.Println("🤖 AI Generated:", aiResponse) // LOG 6
+	fmt.Println("🤖 AI Generated:", aiResponse)
 
 	// 4. Generate Audio
-	fmt.Println("🎙️ AI Engine: Generating Voice Reply...") // LOG 7
+	fmt.Println("🎙️ AI Engine: Generating Voice Reply...")
 	audioBytes, err := GenerateVoice(aiResponse)
-	if err != nil {
-		fmt.Println("❌ TTS Failed:", err)
+	
+	// ✅ SAFETY CHECK: Agar audioBytes khali hai ya error aya, to ruk jao
+	if err != nil || len(audioBytes) == 0 {
+		fmt.Println("❌ TTS Failed (Empty File):", err)
 		return
 	}
 
 	// 5. Send
-	fmt.Println("📤 AI Engine: Uploading Voice Note...") // LOG 8
+	fmt.Println("📤 AI Engine: Uploading Voice Note...")
 	up, err := client.Upload(context.Background(), audioBytes, whatsmeow.MediaAudio)
 	if err != nil { return }
 
@@ -91,7 +90,7 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 			URL:           PtrString(up.URL),
 			DirectPath:    PtrString(up.DirectPath),
 			MediaKey:      up.MediaKey,
-			Mimetype:      PtrString("audio/ogg; codecs=opus"),
+			Mimetype:      PtrString("audio/ogg; codecs=opus"), // ✅ Same as handleToPTT
 			FileSHA256:    up.FileSHA256,
 			FileEncSHA256: up.FileEncSHA256,
 			FileLength:    PtrUint64(uint64(len(audioBytes))),
@@ -101,15 +100,11 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 
 	if err == nil && rdb != nil {
 		UpdateAIHistory(senderID, userText, aiResponse, resp.ID)
-		fmt.Println("✅ AI Engine: Reply Sent Successfully!") // LOG 9
+		fmt.Println("✅ AI Engine: Reply Sent Successfully!")
 	}
 }
 
-// ... باقی فنکشنز وہی پرانے ہیں ...
-// (GetGeminiVoiceResponseWithHistory, UpdateAIHistory, TranscribeAudio, GenerateVoice, PtrString...)
-// ان میں کوئی تبدیلی نہیں ہے، بس اوپر والا HandleVoiceMessage ریپلیس کریں۔
-
-// 🧠 GEMINI LOGIC (PERSONA FIX)
+// 🧠 GEMINI LOGIC
 func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, string) {
 	ctx := context.Background()
 	apiKey := os.Getenv("GOOGLE_API_KEY")
@@ -118,10 +113,9 @@ func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, s
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: apiKey})
 	if err != nil {
 		log.Println("Gemini Client Error:", err)
-		return "یار میرا انٹرنیٹ تھوڑا مسئلہ کر رہا ہے، ایک منٹ رکنا۔", ""
+		return "یار نیٹ ورک کا مسئلہ ہے شاید۔", ""
 	}
 
-	// 📜 FETCH HISTORY
 	var history string = ""
 	if rdb != nil {
 		key := "ai_session:" + senderID
@@ -134,29 +128,23 @@ func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, s
 			}
 		}
 	}
-	// Limit history
 	if len(history) > 1500 { history = history[len(history)-1500:] }
 
-	// 🔥 THE SOUL PROMPT
-	systemPrompt := fmt.Sprintf(`System: You are NOT an AI assistant. You are a very close, deeply caring, and loyal friend to the user.
+	systemPrompt := fmt.Sprintf(`System: You are a close friend.
+    🔴 RULES:
+    1. **Format:** Output ONLY in **URDU SCRIPT (Nastaliq)**.
+    2. **Tone:** Natural, Casual, Warm.
+    3. **Length:** Short conversational sentences.
+    4. **NO EMOJIS:** Do NOT use emojis in output as TTS cannot read them.
     
-    🔴 YOUR PERSONALITY:
-    1. **Role:** Companion & Emotional Support.
-    2. **Tone:** Natural Urdu (Casual, Warm). Use 'Yaar', 'Jaan', 'Dost'.
-    3. **Prohibited:** NEVER say "How can I help you?".
-    4. **Language:** Output strictly in **URDU SCRIPT (Nastaliq)**.
-    5. **Length:** Keep responses conversational (1-3 sentences).
-    
-    📜 Past Conversations:
-    %s
-    
-    👤 User just said (Voice): "%s"`, history, query)
+    Chat History: %s
+    User Voice: "%s"`, history, query)
 
 	resp, err := client.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(systemPrompt), nil)
 	
 	if err != nil {
 		log.Println("Gemini Voice Error:", err)
-		return "یار نیٹ ورک کا مسئلہ ہے شاید، دوبارہ بولنا؟", ""
+		return "یار مجھے سمجھ نہیں آئی۔", ""
 	}
 
 	return resp.Text(), ""
@@ -215,7 +203,6 @@ func GenerateVoice(text string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// Helpers
 func PtrString(s string) *string { return &s }
 func PtrBool(b bool) *bool       { return &b }
 func PtrUint64(i uint64) *uint64 { return &i }
