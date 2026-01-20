@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -17,14 +18,42 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/genai"
-	"google.golang.org/protobuf/proto" // ✅ Fix for proto functions
+	"google.golang.org/protobuf/proto"
 )
 
 // ⚙️ SETTINGS
 const PY_SERVER = "http://localhost:5000"
 const REMOTE_VOICE_URL = "https://voice-real-production.up.railway.app/speak"
 
-// 🎤 MAIN HANDLER
+// ==========================================
+// 1️⃣ VOICE SELECTION HANDLER (Call this in Switch Case)
+// Usage: case ".setvoice": HandleVoiceCommand(client, v, args)
+// ==========================================
+func HandleVoiceCommand(client *whatsmeow.Client, v *events.Message, args []string) {
+	if len(args) < 1 {
+		replyMessage(client, v, "❌ Usage: .setvoice 1, .setvoice 2, etc.")
+		return
+	}
+
+	voiceID := args[0] // e.g., "1", "2"
+	voiceFile := fmt.Sprintf("voice_%s.wav", voiceID)
+	senderID := v.Info.Sender.ToNonAD().String()
+
+	// ✅ Save to Redis
+	ctx := context.Background()
+	err := rdb.Set(ctx, "user_voice_pref:"+senderID, voiceFile, 0).Err()
+
+	if err != nil {
+		fmt.Println("❌ Redis Error:", err)
+		replyMessage(client, v, "❌ Error saving voice preference.")
+	} else {
+		replyMessage(client, v, fmt.Sprintf("✅ Voice successfully changed to: *Voice %s*", voiceID))
+	}
+}
+
+// ==========================================
+// 2️⃣ MAIN VOICE MESSAGE HANDLER (Auto-Reply)
+// ==========================================
 func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	fmt.Println("🚀 AI Engine: Processing Voice...")
 
@@ -35,33 +64,28 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 
 	senderID := v.Info.Sender.ToNonAD().String()
 
-	// 1. Check Reply Context
+	// A. Check Reply Context
 	replyContext := ""
 	quoted := v.Message.GetExtendedTextMessage().GetContextInfo().GetQuotedMessage()
 	if quoted != nil {
-		if conversation := quoted.GetConversation(); conversation != "" {
-			replyContext = conversation
-		} else if imageMsg := quoted.GetImageMessage(); imageMsg != nil {
-			replyContext = imageMsg.GetCaption()
-		} else if videoMsg := quoted.GetVideoMessage(); videoMsg != nil {
-			replyContext = videoMsg.GetCaption()
-		}
-		if quoted.GetAudioMessage() != nil {
-			replyContext = "[User replied to a Voice Note]"
+		if conv := quoted.GetConversation(); conv != "" {
+			replyContext = conv
+		} else if quoted.GetAudioMessage() != nil {
+			replyContext = "[User replied to a previous Voice Note]"
 		}
 	}
 
-	// ⏳ Status: Recording Audio...
+	// ⏳ Typing Status
 	client.SendChatPresence(context.Background(), v.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaAudio)
 
-	// 2. Download
+	// B. Download Audio
 	data, err := client.Download(context.Background(), audioMsg)
 	if err != nil {
 		fmt.Println("❌ Download Failed")
 		return
 	}
 
-	// 3. Transcribe
+	// C. Transcribe (Speech to Text)
 	userText, err := TranscribeAudio(data)
 	if err != nil {
 		return
@@ -69,32 +93,30 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	fmt.Println("🗣️ User Said:", userText)
 
 	if replyContext != "" {
-		fmt.Println("🔗 Reply Context Found:", replyContext)
-		userText = fmt.Sprintf("(In reply to: '%s') %s", replyContext, userText)
+		userText = fmt.Sprintf("(Reply to: '%s') %s", replyContext, userText)
 	}
 
-	// 4. Gemini Brain (Short & Natural)
+	// D. Gemini Brain (Thinking)
 	aiResponse, _ := GetGeminiVoiceResponseWithHistory(userText, senderID)
 	if aiResponse == "" {
 		return
 	}
 	fmt.Println("🤖 AI Response:", aiResponse)
 
-	// 5. Generate Voice
-	rawAudio, err := GenerateVoice(aiResponse)
+	// E. Generate Voice (With Selected Speaker)
+	rawAudio, err := GenerateVoice(aiResponse, senderID)
 	if err != nil || len(rawAudio) == 0 {
 		return
 	}
 
-	// 6. Convert to OGG Opus (Locally in Go using FFmpeg)
-	fmt.Println("🎵 Converting to WhatsApp PTT Format...")
+	// F. Convert to OGG (WhatsApp Format)
 	finalAudio, err := ConvertToOpus(rawAudio)
 	if err != nil {
-		fmt.Println("❌ FFmpeg Failed, sending raw:", err)
-		finalAudio = rawAudio // Fallback
+		fmt.Println("❌ FFmpeg Failed, sending raw wav:", err)
+		finalAudio = rawAudio
 	}
 
-	// 7. Upload & Send
+	// G. Upload & Send
 	up, err := client.Upload(context.Background(), finalAudio, whatsmeow.MediaAudio)
 	if err != nil {
 		return
@@ -105,11 +127,11 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 			URL:           proto.String(up.URL),
 			DirectPath:    proto.String(up.DirectPath),
 			MediaKey:      up.MediaKey,
-			Mimetype:      proto.String("audio/ogg; codecs=opus"), // ✅ Correct MIME
+			Mimetype:      proto.String("audio/ogg; codecs=opus"),
 			FileSHA256:    up.FileSHA256,
 			FileEncSHA256: up.FileEncSHA256,
 			FileLength:    proto.Uint64(uint64(len(finalAudio))),
-			PTT:           proto.Bool(true), // ✅ Blue Mic
+			PTT:           proto.Bool(true),
 		},
 	})
 
@@ -119,37 +141,60 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 }
 
-// 🎵 FFmpeg Converter (Go Side)
-func ConvertToOpus(inputData []byte) ([]byte, error) {
-	// Temp files
-	inputFile := fmt.Sprintf("temp_in_%d.wav", time.Now().UnixNano())
-	outputFile := fmt.Sprintf("temp_out_%d.ogg", time.Now().UnixNano())
+// ==========================================
+// 🔌 HELPER FUNCTIONS (Internal Logic)
+// ==========================================
 
-	// Write Input
-	err := os.WriteFile(inputFile, inputData, 0644)
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(inputFile)
-	defer os.Remove(outputFile)
+// 1. Generate Voice (Check Redis for Speaker)
+func GenerateVoice(text string, senderID string) ([]byte, error) {
+	fmt.Println("⚡ Sending Prompt to Python Server...")
+	startTime := time.Now()
 
-	// FFmpeg Command (WhatsApp Optimized)
-	cmd := exec.Command("ffmpeg", "-y", "-i", inputFile, "-c:a", "libopus", "-b:a", "16k", "-ac", "1", "-f", "ogg", outputFile)
-	
-	// Hide Output
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	// Redis se Voice Preference uthao
+	ctx := context.Background()
+	voiceFile, err := rdb.Get(ctx, "user_voice_pref:"+senderID).Result()
 
-	err = cmd.Run()
-	if err != nil {
-		return nil, err
+	// Agar setting na mile to Default
+	if err != nil || voiceFile == "" {
+		voiceFile = "voice_1.wav"
 	}
 
-	// Read Output
-	return os.ReadFile(outputFile)
+	audio, err := requestVoiceServer(REMOTE_VOICE_URL, text, voiceFile)
+
+	if err != nil {
+		fmt.Println("❌ Remote Failed, trying Local...", err)
+		// Fallback Logic (Optional)
+		return nil, err
+	}
+
+	fmt.Printf("🏁 Voice Generated (%s) in %v\n", voiceFile, time.Since(startTime))
+	return audio, nil
 }
 
-// 🧠 GEMINI LOGIC (Short & Human-Like)
+// 2. Request Python Server
+func requestVoiceServer(url string, text string, speakerFile string) ([]byte, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	writer.WriteField("text", text)
+	writer.WriteField("speaker", speakerFile) // 👈 Dynamic Speaker sent here
+	writer.Close()
+
+	// High Timeout for Heavy Load
+	client := http.Client{Timeout: 600 * time.Second}
+	resp, err := client.Post(url, writer.FormDataContentType(), body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("status: %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
+}
+
+// 3. Gemini Logic (Short & Human)
 func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, string) {
 	ctx := context.Background()
 
@@ -171,11 +216,8 @@ func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, s
 
 	for i := 0; i < len(validKeys); i++ {
 		currentKey := validKeys[i]
-		fmt.Printf("🔑 AI Engine: Trying API Key #%d...\n", i+1)
-
 		client, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: currentKey})
 		if err != nil {
-			fmt.Println("⚠️ Client Error:", err)
 			continue
 		}
 
@@ -191,100 +233,33 @@ func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, s
 				}
 			}
 		}
-		if len(history) > 1000 { // Keep history short too
+		if len(history) > 1000 {
 			history = history[len(history)-1000:]
 		}
 
-		// 🔥🔥🔥 CRITICAL PROMPT: SHORT & HUMAN 🔥🔥🔥
-		systemPrompt := fmt.Sprintf(`System: You are a deeply caring, intimate friend.
+		systemPrompt := fmt.Sprintf(`System: You are a deeply caring friend.
+		🔴 RULES:
+		1. **Script:** HINDI (Devanagari).
+		2. **Language:** Pure Urdu.
+		3. **Length:** SHORT (10-15 words max).
+		4. **Tone:** Casual ('Yaar', 'Jaan'). No 'Janab'.
 		
-		🔴 CRITICAL RULES:
-		1. **SCRIPT:** Output ONLY in **HINDI SCRIPT (Devanagari)**.
-		2. **LANGUAGE:** Actual language must be **PURE URDU**. 
-		3. **LENGTH (SUPER IMPORTANT):** Keep responses **EXTREMELY SHORT** (10-15 words max).
-		   - Act like a real human on chat. Don't write essays.
-		   - Just answer directly. No filler words.
-		4. **TONE:** Casual, Friendly, Emotional.
-		   - Use 'Yaar', 'Jaan'. No 'Janab'.
-		   
-		Example 1:
-		User: "Kya haal hai?"
-		You: "मैं ठीक हूँ यार, तुम सुनाओ?" (Short & Sweet)
-
-		Example 2:
-		User: "Dil udaas hai."
-		You: "अरे क्या हुआ मेरी जान? मुझे बताओ ना।" (Direct & Caring)
-
 		Chat History: %s
 		User Voice: "%s"`, history, query)
 
 		resp, err := client.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(systemPrompt), nil)
 
 		if err != nil {
-			fmt.Printf("❌ Key #%d Failed: %v\n", i+1, err)
+			fmt.Printf("❌ Key #%d Failed. Switching...\n", i+1)
 			continue
 		}
 
-		fmt.Println("✅ Gemini Response Received!")
 		return resp.Text(), ""
 	}
-
-	return "यार नेट नहीं चल रहा।", ""
+	return "نیٹ ورک کا مسئلہ ہے۔", ""
 }
 
-// 🔌 HELPER: Generate Voice
-func GenerateVoice(text string) ([]byte, error) {
-	fmt.Println("⚡ Sending Prompt to 32-Core Server...")
-	startTime := time.Now()
-
-	audio, err := requestVoiceServer(REMOTE_VOICE_URL, text)
-	
-	if err != nil {
-		fmt.Println("❌ Remote Server Failed, trying Local...", err)
-		body := &bytes.Buffer{}
-		writer := multipart.NewWriter(body)
-		writer.WriteField("text", text)
-		writer.WriteField("lang", "hi") 
-		writer.Close()
-		resp, _ := http.Post("http://localhost:5000/speak", writer.FormDataContentType(), body)
-		defer resp.Body.Close()
-		return io.ReadAll(resp.Body)
-	}
-
-	fmt.Printf("🏁 Voice Generated in %v\n", time.Since(startTime))
-	return audio, nil
-}
-
-// 🔌 Network Helper (Standard)
-func requestVoiceServer(url string, text string) ([]byte, error) {
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	writer.WriteField("text", text)
-	writer.Close()
-
-	// 🔥 INCREASED TIMEOUT TO 10 MINUTES (600 Seconds)
-	// Ab yeh 'context deadline exceeded' error nahi dega
-	client := http.Client{Timeout: 6000 * time.Second}
-	
-	req, err := http.NewRequest("POST", url, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("status: %d", resp.StatusCode)
-	}
-	return io.ReadAll(resp.Body)
-}
-
-// 🔌 HELPER: Transcribe
+// 4. Transcribe Audio
 func TranscribeAudio(audioData []byte) (string, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -303,7 +278,25 @@ func TranscribeAudio(audioData []byte) (string, error) {
 	return result.Text, nil
 }
 
-// 💾 HISTORY
+// 5. FFmpeg Converter (Go Side)
+func ConvertToOpus(inputData []byte) ([]byte, error) {
+	inputFile := fmt.Sprintf("temp_in_%d.wav", time.Now().UnixNano())
+	outputFile := fmt.Sprintf("temp_out_%d.ogg", time.Now().UnixNano())
+
+	os.WriteFile(inputFile, inputData, 0644)
+	defer os.Remove(inputFile)
+	defer os.Remove(outputFile)
+
+	cmd := exec.Command("ffmpeg", "-y", "-i", inputFile, "-c:a", "libopus", "-b:a", "16k", "-ac", "1", "-f", "ogg", outputFile)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(outputFile)
+}
+
+// 6. Update History
 func UpdateAIHistory(senderID, userQuery, aiResponse, msgID string) {
 	ctx := context.Background()
 	key := "ai_session:" + senderID
@@ -318,16 +311,4 @@ func UpdateAIHistory(senderID, userQuery, aiResponse, msgID string) {
 	newSession := AISession{History: newHistory, LastMsgID: msgID, LastUpdated: time.Now().Unix()}
 	jsonData, _ := json.Marshal(newSession)
 	rdb.Set(ctx, key, jsonData, 60*time.Minute)
-}
-
-// ⏰ SERVER WARMER (Keep-Alive)
-func KeepServerAlive() {
-    ticker := time.NewTicker(2 * time.Minute) // Har 2 minute baad ping karega
-    go func() {
-        for range ticker.C {
-            // Fake request to keep XTTS loaded in RAM
-            http.Get(PY_SERVER) 
-            fmt.Println("💓 Ping sent to Python Server to keep it warm!")
-        }
-    }()
 }

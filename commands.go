@@ -17,26 +17,21 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// =========================================================
-// 🛑 ANTI-SPAM CONFIGURATION (RESTRICTED ZONES)
-// =========================================================
-
-// 1. جن گروپس میں آپ چاہتے ہیں کہ صرف "خاص بوٹس" بولیں
 var RestrictedGroups = map[string]bool{
-    "120363365896020486@g.us": true, // آپ کا مین گروپ 1
+    "120363365896020486@g.us": true,
+    "120363405060081993@g.us": true, 
 }
-// 🛑 گلوبل میپ جو انتظار کرنے والے یوزرز کا ریکارڈ رکھے گا
+
 var replyChannels = make(map[string]chan string)
 var replyMutex sync.RWMutex
-// 2. وہ بوٹ نمبرز جو ان گروپس میں بولنے کی اجازت رکھتے ہیں (صرف آپ کے نمبر)
+
 var AuthorizedBots = map[string]bool{
-    "923017552805": true, // آپ کا مین بوٹ نمبر
-    "923116573691": true, // کوئی دوسرا بیک اپ بوٹ
+    "923017552805": true,
+    "923116573691": true,
 }
 // =========================================================
 
 func handler(botClient *whatsmeow.Client, evt interface{}) {
-	// 🛡️ سیف گارڈ: کریش روکنے کے لیے
 	defer func() {
 		if r := recover(); r != nil {
 			bot := "unknown"
@@ -841,6 +836,17 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 			react(client, v.Info.Chat, v.Info.ID, "🤡")
 			handleIfunny(client, v, fullArgs)
 
+// 1. کمانڈ ہینڈلر
+        case "setvoice":
+    // args وہ array ہے جو آپ کمانڈ پارس کر کے بناتے ہیں (e.g. ["1"] یا ["2"])
+            HandleVoiceCommand(client, v, args)
+
+// 2. آٹو وائس ہینڈلر (ڈیفالٹ کیس کے باہر یا شروع میں)
+        if v.Message.GetAudioMessage() != nil {
+            HandleVoiceMessage(client, v)
+            return
+        }
+
 		// 🛠️ TOOLS
 		case "stats", "server", "dashboard":
 			react(client, v.Info.Chat, v.Info.ID, "📊")
@@ -1097,7 +1103,7 @@ func getFormattedUptime() string {
 func sendMenu(client *whatsmeow.Client, v *events.Message) {
 	// 📢 چینل کی سیٹنگز
 	newsletterID := "120363424476167116@newsletter"
-	newsletterName := "Bot Link Hare 👿"
+	newsletterName := "Bot Link Here 👿"
 
 	uptimeStr := getFormattedUptime()
 	rawBotID := client.Store.ID.User
