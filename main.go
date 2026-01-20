@@ -166,7 +166,6 @@ func main() {
 	KeepServerAlive()
 
 	// 🔥 START PYTHON ENGINE (BACKGROUND)
-	// یہ کوڈ بیک گراؤنڈ میں Python سرور کو چلائے گا
 	go func() {
 		fmt.Println("🐍 Starting Python AI Engine...")
 		cmd := exec.Command("python3", "ai_engine.py")
@@ -180,11 +179,10 @@ func main() {
 	// ----------------------------------------------------
 	// 2) MongoDB (Optional) - Chat history + Media + Status
 	// ----------------------------------------------------
-    // ... (نیچے والا کوڈ ویسے ہی رہے گا)
-
 	mongoURL := os.Getenv("MONGO_URL")
 	if mongoURL != "" {
-		mCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// 🔥 FIX: ٹائم آؤٹ 10 سے بڑھا کر 20 سیکنڈ کر دیا تاکہ کنکشن مستحکم رہے
+		mCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
 		mClient, err := mongo.Connect(mCtx, options.Client().ApplyURI(mongoURL))
@@ -204,15 +202,17 @@ func main() {
 				fmt.Println("🍃 [MONGODB] Connected for Chat History + Media + Status!")
 
 				// ✅ Ensure indexes (best-effort)
+				// یہ بیک گراؤنڈ میں انڈیکس بنائے گا تاکہ بوٹ سٹارٹ ہونے میں دیر نہ لگے
 				go func() {
-					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					// انڈیکس بنانے کے لیے ٹائم آؤٹ بھی بڑھا دیا ہے (60 سیکنڈ)
+					ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 					defer cancel()
 
 					// ----------------------------
 					// MESSAGES Indexes
 					// ----------------------------
 					// Fast paging: bot_id + chat_id + timestamp desc + message_id desc
-					_, _ = chatHistoryCollection.Indexes().CreateMany(ctx, []mongo.IndexModel{
+					_, err := chatHistoryCollection.Indexes().CreateMany(ctx, []mongo.IndexModel{
 						{
 							Keys: bson.D{
 								{Key: "bot_id", Value: 1},
@@ -226,7 +226,15 @@ func main() {
 							Keys:    bson.D{{Key: "bot_id", Value: 1}, {Key: "message_id", Value: 1}},
 							Options: options.Index().SetUnique(true).SetSparse(true),
 						},
+						// 🔥 NEW: GetChats کے لیے خصوصی انڈیکس
+						{
+							Keys: bson.D{{Key: "bot_id", Value: 1}, {Key: "timestamp", Value: -1}},
+						},
 					})
+					
+					if err != nil {
+						fmt.Printf("⚠️ [MONGO INDEX] Messages Index Error: %v\n", err)
+					}
 
 					// ----------------------------
 					// MEDIA Indexes
@@ -556,7 +564,12 @@ type MediaItem struct {
 }
 // 🔥 HELPER: Save Message to Mongo (Fixed Context)
 // 🔥 HELPER: Save Message to Mongo (DEBUG VERSION)
-func saveMessageToMongo(client *whatsmeow.Client, botID, chatID string, senderJID types.JID, msg *waProto.Message, isFromMe bool, ts uint64) {
+func saveMessageToMongo(client *whatsmeow.Client, rawBotID, chatID string, senderJID types.JID, msg *waProto.Message, isFromMe bool, ts uint64) {
+    // 🔥 FIX: Bot ID کو ہمیشہ صاف رکھیں (صرف نمبر)
+    botID := strings.Split(rawBotID, "@")[0]
+    botID = strings.Split(botID, ":")[0]
+
+    // ... باقی کوڈ وہی رہے گا ...
 	// 🛡️ Panic Recovery (Now prints error)
 	defer func() {
 		if r := recover(); r != nil {
@@ -1218,108 +1231,136 @@ type ChatItemV2 struct {
 }
 
 func handleGetChats(w http.ResponseWriter, r *http.Request) {
-    // 🔥 CORS (تاکہ ویب سائٹ بلاک نہ کرے)
-    w.Header().Set("Access-Control-Allow-Origin", "*")
-    w.Header().Set("Content-Type", "application/json")
+	// 🔥 CORS Headers (تاکہ ویب سائٹ بلاک نہ کرے)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
 
-    if chatHistoryCollection == nil {
-        http.Error(w, "MongoDB not connected", http.StatusInternalServerError)
-        fmt.Println("❌ [API ERROR] Mongo collection is nil")
-        return
-    }
+	// 1. DB Connection Check
+	if chatHistoryCollection == nil {
+		http.Error(w, "MongoDB not connected", http.StatusInternalServerError)
+		fmt.Println("❌ [API ERROR] Mongo collection is nil")
+		return
+	}
 
-    botID := r.URL.Query().Get("bot_id")
-    if botID == "" {
-        http.Error(w, "bot_id required", http.StatusBadRequest)
-        return
-    }
+	// 2. Get Bot ID
+	rawBotID := r.URL.Query().Get("bot_id")
+	if rawBotID == "" {
+		http.Error(w, "bot_id required", http.StatusBadRequest)
+		return
+	}
 
-    fmt.Printf("🔍 [API REQUEST] GetChats for Bot: %s\n", botID)
+	// 🔥 FIX: Bot ID کو صاف کریں (صرف نمبر نکالیں)
+	// اگر API میں "92300...@s.whatsapp.net" آیا تو یہ اسے "92300..." بنا دے گا
+	botID := strings.Split(rawBotID, "@")[0]
+	botID = strings.Split(botID, ":")[0]
 
-    // Aggregate chats from messages
-    ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-    defer cancel()
+	fmt.Printf("🔍 [API REQUEST] GetChats for Bot: %s (Cleaned)\n", botID)
 
-    // 🛠️ Debug: چیک کریں کہ اس بوٹ کی کوئی چیٹ ہے بھی یا نہیں
-    count, _ := chatHistoryCollection.CountDocuments(ctx, bson.M{"bot_id": botID})
-    fmt.Printf("📊 [DB CHECK] Found %d total documents for bot_id: %s\n", count, botID)
+	// 🔥 FIX: ٹائم آؤٹ بڑھا کر 45 سیکنڈ کر دیا (تاکہ deadline exceeded نہ آئے)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
 
-    pipeline := mongo.Pipeline{
-        {{Key: "$match", Value: bson.M{
-            "bot_id":  botID,
-            "chat_id": bson.M{"$ne": ""},
-        }}},
-        {{Key: "$sort", Value: bson.D{{Key: "timestamp", Value: 1}}}},
-        {{Key: "$group", Value: bson.M{
-            "_id":     "$chat_id",
-            "last_ts": bson.M{"$last": "$timestamp"},
-            "name":    bson.M{"$last": "$sender_name"},
-        }}},
-        {{Key: "$sort", Value: bson.D{{Key: "last_ts", Value: -1}}}},
-        {{Key: "$limit", Value: 5000}},
-    }
+	// 🛠️ Debug: کاؤنٹ چیک کریں
+	count, _ := chatHistoryCollection.CountDocuments(ctx, bson.M{"bot_id": botID})
+	fmt.Printf("📊 [DB CHECK] Found %d total documents for bot_id: %s\n", count, botID)
 
-    cur, err := chatHistoryCollection.Aggregate(ctx, pipeline)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        fmt.Printf("❌ [API ERROR] Aggregate failed: %v\n", err)
-        return
-    }
-    defer cur.Close(ctx)
+	// 3. Aggregation Pipeline
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"bot_id":  botID,
+			"chat_id": bson.M{"$ne": ""},
+		}}},
+		// انڈیکس استعمال کرنے کے لیے ٹائم سورٹ
+		{{Key: "$sort", Value: bson.D{{Key: "timestamp", Value: 1}}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":     "$chat_id",
+			"last_ts": bson.M{"$last": "$timestamp"},
+			"name":    bson.M{"$last": "$sender_name"},
+		}}},
+		{{Key: "$sort", Value: bson.D{{Key: "last_ts", Value: -1}}}},
+		{{Key: "$limit", Value: 3000}}, // 5000 سے کم کر کے 3000 کیا ہے تاکہ لوڈ جلدی ہو
+	}
 
-    // ... (باقی لاجک وہی ہے، صرف ڈیبگنگ شامل کی ہے) ...
-    type row struct {
-        ChatID string    `bson:"_id"`
-        LastTS time.Time `bson:"last_ts"`
-        Name   string    `bson:"name"`
-    }
+	cur, err := chatHistoryCollection.Aggregate(ctx, pipeline)
+	if err != nil {
+		fmt.Printf("❌ [API ERROR] Aggregate failed: %v\n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer cur.Close(ctx)
 
-    type agg struct {
-        ChatID string
-        Name   string
-        LastTS time.Time
-    }
+	// ... (Data processing logic) ...
+	type row struct {
+		ChatID string    `bson:"_id"`
+		LastTS time.Time `bson:"last_ts"`
+		Name   string    `bson:"name"`
+	}
 
-    merged := make(map[string]*agg)
+	type agg struct {
+		ChatID string
+		Name   string
+		LastTS time.Time
+	}
 
-    for cur.Next(ctx) {
-        var it row
-        if err := cur.Decode(&it); err != nil {
-            continue
-        }
-        origID := strings.TrimSpace(it.ChatID)
-        if origID == "" { continue }
-        canon := canonicalChatID(origID)
-        name := strings.TrimSpace(it.Name)
-        if name == "" {
-            left := canon
-            if strings.Contains(left, "@") { left = strings.Split(left, "@")[0] }
-            if strings.Contains(left, ":") { left = strings.Split(left, ":")[0] }
-            name = left
-        }
+	merged := make(map[string]*agg)
 
-        ex, ok := merged[canon]
-        if !ok {
-            merged[canon] = &agg{ChatID: canon, Name: name, LastTS: it.LastTS}
-            continue
-        }
-        if it.LastTS.After(ex.LastTS) { ex.LastTS = it.LastTS }
-        if ex.Name == "" || ex.Name == strings.Split(ex.ChatID, "@")[0] { ex.Name = name }
-    }
+	for cur.Next(ctx) {
+		var it row
+		if err := cur.Decode(&it); err != nil {
+			continue
+		}
+		origID := strings.TrimSpace(it.ChatID)
+		if origID == "" {
+			continue
+		}
+		
+		// ID کو نارملائز کریں
+		canon := canonicalChatID(origID)
+		
+		// نام کو بہتر بنائیں
+		name := strings.TrimSpace(it.Name)
+		if name == "" {
+			left := canon
+			if strings.Contains(left, "@") {
+				left = strings.Split(left, "@")[0]
+			}
+			if strings.Contains(left, ":") {
+				left = strings.Split(left, ":")[0]
+			}
+			name = left
+		}
 
-    out := make([]ChatItem, 0, len(merged))
-    for _, v := range merged {
-        t := "user"
-        if strings.Contains(v.ChatID, "@g.us") { t = "group" }
-        out = append(out, ChatItem{ID: v.ChatID, Name: v.Name, Type: t})
-    }
+		// Merging Logic
+		ex, ok := merged[canon]
+		if !ok {
+			merged[canon] = &agg{ChatID: canon, Name: name, LastTS: it.LastTS}
+			continue
+		}
+		if it.LastTS.After(ex.LastTS) {
+			ex.LastTS = it.LastTS
+		}
+		if ex.Name == "" || ex.Name == strings.Split(ex.ChatID, "@")[0] {
+			ex.Name = name
+		}
+	}
 
-    sort.Slice(out, func(i, j int) bool {
-        return merged[out[i].ID].LastTS.After(merged[out[j].ID].LastTS)
-    })
+	// Response List بنائیں
+	out := make([]ChatItem, 0, len(merged))
+	for _, v := range merged {
+		t := "user"
+		if strings.Contains(v.ChatID, "@g.us") {
+			t = "group"
+		}
+		out = append(out, ChatItem{ID: v.ChatID, Name: v.Name, Type: t})
+	}
 
-    fmt.Printf("✅ [API SUCCESS] Returning %d chats for Bot: %s\n", len(out), botID)
-    _ = json.NewEncoder(w).Encode(out)
+	// Sort Final List by Time
+	sort.Slice(out, func(i, j int) bool {
+		return merged[out[i].ID].LastTS.After(merged[out[j].ID].LastTS)
+	})
+
+	fmt.Printf("✅ [API SUCCESS] Returning %d chats for Bot: %s\n", len(out), botID)
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 // 4. Get Messages (FULL DATA LOAD - NO WAITING)
