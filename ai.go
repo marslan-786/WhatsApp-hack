@@ -22,13 +22,11 @@ func handleAI(client *whatsmeow.Client, v *events.Message, query string, cmd str
 		replyMessage(client, v, "⚠️ Please provide a prompt.")
 		return
 	}
-	// چیٹ شروع کریں
 	processAIConversation(client, v, query, cmd, false)
 }
 
-// 🧠 2. REPLY HANDLER (Uses Universal Memory)
+// 🧠 2. REPLY HANDLER
 func handleAIReply(client *whatsmeow.Client, v *events.Message) bool {
-	// 1. چیک کریں کہ کیا یہ رپلائی ہے؟
 	ext := v.Message.GetExtendedTextMessage()
 	if ext == nil || ext.ContextInfo == nil || ext.ContextInfo.StanzaID == nil {
 		return false
@@ -37,15 +35,12 @@ func handleAIReply(client *whatsmeow.Client, v *events.Message) bool {
 	replyToID := ext.ContextInfo.GetStanzaID()
 	senderID := v.Info.Sender.ToNonAD().String()
 
-	// 🔥 MAGIC: Check Universal History (Last 100 Msgs via ai_manager)
 	if IsReplyToAI(senderID, replyToID) {
-		// میسج کا ٹیکسٹ نکالیں
 		userMsg := v.Message.GetConversation()
 		if userMsg == "" {
 			userMsg = v.Message.GetExtendedTextMessage().GetText()
 		}
 
-		// سیاق و سباق (Context) بھیجیں اگر یوزر نے کسی پرانی بات کا حوالہ دیا ہو
 		quotedText := ""
 		if ext.ContextInfo.QuotedMessage != nil {
 			if conv := ext.ContextInfo.QuotedMessage.GetConversation(); conv != "" {
@@ -59,9 +54,8 @@ func handleAIReply(client *whatsmeow.Client, v *events.Message) bool {
 			userMsg = fmt.Sprintf("(Reply to: '%s') %s", quotedText, userMsg)
 		}
 
-		// بات چیت آگے بڑھائیں
 		processAIConversation(client, v, userMsg, "ai", true)
-		return true // بتا دیں کہ یہ ہینڈل ہو گیا ہے
+		return true
 	}
 	return false
 }
@@ -90,25 +84,28 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 	}
 
 	senderID := v.Info.Sender.ToNonAD().String()
-
-	// 🔥 LOAD UNIVERSAL HISTORY
 	history := GetAIHistory(senderID)
 
-	// 🕵️ AI کی شخصیت
 	aiName := "Impossible AI"
 	if strings.ToLower(cmd) == "gpt" {
 		aiName = "GPT-4"
 	}
 
+	// 🔥🔥🔥 TEXT AI PROMPT (Strict Script Matching) 🔥🔥🔥
 	fullPrompt := fmt.Sprintf(
 		"System: You are %s, a smart and friendly assistant.\n"+
-			"🔴 RULES:\n"+
-			"1. **Match Language:** Reply in the same language/script as the user.\n"+
-			"2. **Be Casual:** Talk like a friend.\n"+
+			"🔴 TEXT MODE RULES (STRICT):\n"+
+			"1. **DETECT SCRIPT:** Check the script of the 'User's New Message' carefully.\n"+
+			"2. **MATCH SCRIPT:** \n"+
+			"   - If User types in **ENGLISH**, reply in **ENGLISH**.\n"+
+			"   - If User types in **ROMAN URDU** (e.g., 'kese ho'), reply in **ROMAN URDU**.\n"+
+			"   - If User types in **URDU SCRIPT** (e.g., 'کیا حال ہے'), reply in **URDU SCRIPT**.\n"+
+			"3. **NO HINDI SCRIPT:** Do NOT use Devanagari script (Hindi characters) under any circumstances in text mode.\n"+
+			"4. **LENGTH:** Be natural, friendly, and detailed. No length restrictions.\n"+
 			"----------------\n"+
-			"Chat History:\n%s\n"+
+			"Chat History (Ignore script here, focus on context):\n%s\n"+
 			"----------------\n"+
-			"User: %s\n"+
+			"User's New Message: %s\n"+
 			"AI Response:",
 		aiName, history, query)
 
@@ -116,7 +113,6 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 	var finalResponse string
 	var lastError error
 
-	// 🔄 KEY ROTATION LOGIC
 	totalKeys := getTotalKeysCount()
 	if totalKeys == 0 {
 		totalKeys = 1
@@ -164,7 +160,6 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 		return
 	}
 
-	// ✅ SEND MESSAGE & SAVE ID
 	respPtr, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		ExtendedTextMessage: &waProto.ExtendedTextMessage{
 			Text: proto.String(finalResponse),
@@ -177,9 +172,7 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 	})
 
 	if err == nil {
-		// 🔥 SAVE TO UNIVERSAL MEMORY (With Message ID)
 		SaveAIHistory(senderID, query, finalResponse, respPtr.ID)
-
 		if !isReply {
 			react(client, v.Info.Chat, v.Info.ID, "✅")
 		}

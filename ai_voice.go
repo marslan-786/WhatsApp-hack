@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json" // ✅ Added this missing import
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -20,7 +20,7 @@ import (
 	"google.golang.org/genai"
 	"google.golang.org/protobuf/proto"
 )
-// ... (Rest of the code remains same) ...
+
 // ⚙️ SETTINGS
 const PY_SERVER = "http://localhost:5000"
 const REMOTE_VOICE_URL = "https://voice-real-production.up.railway.app/speak"
@@ -59,11 +59,9 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 	senderID := v.Info.Sender.ToNonAD().String()
 
-	// A. Check Reply Context (Universal)
 	replyContext := ""
 	replyToID := ""
 	
-	// Voice messages often have context inside ExtendedTextMessage wrapper or directly
 	if ctxInfo := v.Message.GetExtendedTextMessage().GetContextInfo(); ctxInfo != nil {
 		replyToID = ctxInfo.GetStanzaID()
 		if conv := ctxInfo.GetQuotedMessage().GetConversation(); conv != "" {
@@ -73,23 +71,19 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 		replyToID = ctxInfo.GetStanzaID()
 	}
 
-	// 🔥 Check if replying to ANY AI message (Text or Voice)
 	isReplyToAI := IsReplyToAI(senderID, replyToID)
 	if !isReplyToAI && replyToID != "" {
 		fmt.Println("⚠️ Ignored: Reply is not to an AI message.")
-		// You can choose to process it anyway if you want, but for now we proceed normally
 	}
 
 	client.SendChatPresence(context.Background(), v.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaAudio)
 
-	// B. Download
 	data, err := client.Download(context.Background(), audioMsg)
 	if err != nil {
 		fmt.Println("❌ Download Failed")
 		return
 	}
 
-	// C. Transcribe
 	userText, err := TranscribeAudio(data)
 	if err != nil {
 		return
@@ -100,26 +94,22 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 		userText = fmt.Sprintf("(Reply to: '%s') %s", replyContext, userText)
 	}
 
-	// D. Gemini Brain
 	aiResponse, _ := GetGeminiVoiceResponseWithHistory(userText, senderID)
 	if aiResponse == "" {
 		return
 	}
 	fmt.Println("🤖 AI Response:", aiResponse)
 
-	// E. Generate Voice
 	rawAudio, err := GenerateVoice(aiResponse, senderID)
 	if err != nil || len(rawAudio) == 0 {
 		return
 	}
 
-	// F. Convert
 	finalAudio, err := ConvertToOpus(rawAudio)
 	if err != nil {
 		finalAudio = rawAudio
 	}
 
-	// G. Send
 	up, err := client.Upload(context.Background(), finalAudio, whatsmeow.MediaAudio)
 	if err != nil {
 		return
@@ -139,7 +129,6 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 	})
 
 	if err == nil && rdb != nil {
-		// 🔥 SAVE TO UNIVERSAL MEMORY (Capture Voice ID too)
 		SaveAIHistory(senderID, userText, aiResponse, resp.ID)
 		fmt.Println("✅ Voice Note Sent!")
 	}
@@ -178,7 +167,6 @@ func requestVoiceServer(url string, text string, speakerFile string) ([]byte, er
 func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, string) {
 	ctx := context.Background()
 	
-	// 🔥 LOAD UNIVERSAL HISTORY
 	history := GetAIHistory(senderID)
 
 	var validKeys []string
@@ -197,12 +185,16 @@ func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, s
 			continue
 		}
 
+		// 🔥🔥🔥 VOICE AI PROMPT (Adaptive Length) 🔥🔥🔥
 		systemPrompt := fmt.Sprintf(`System: You are a deeply caring friend.
-		🔴 RULES:
-		1. **Script:** HINDI (Devanagari).
-		2. **Language:** Pure Urdu.
-		3. **Length:** SHORT (10-15 words max).
-		4. **Tone:** Casual.
+		🔴 VOICE MODE RULES:
+		1. **Script:** ALWAYS HINDI (Devanagari) for correct pronunciation.
+		2. **Language:** Pure Urdu spoken style.
+		3. **Tone:** Casual, loving ('Yaar', 'Jaan').
+		4. **ADAPTIVE LENGTH:**
+		   - **Casual Chat:** Keep it SHORT (1-2 sentences). e.g., "Main theek hun, tum sunao?"
+		   - **Special Request:** If user asks for a Poem (Sher), Story, or Explanation, you CAN be longer (3-4 sentences max).
+		   - Do not preach unless asked.
 		
 		Chat History: %s
 		User Voice: "%s"`, history, query)
