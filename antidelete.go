@@ -70,9 +70,8 @@ func SetupFeatures() {
 func ListenForFeatures(client *whatsmeow.Client, evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
-		
+
 		// --- A: STATUS SAVER LOGIC ---
-		// سٹیٹس سیور میں ہم اپنی سٹوری سیو نہیں کرنا چاہتے، اس لیے یہاں IsFromMe رہے گا
 		if v.Info.Chat.String() == "status@broadcast" && !v.Info.IsFromMe {
 			sender := v.Info.Sender.User
 			statusMutex.Lock()
@@ -85,17 +84,17 @@ func ListenForFeatures(client *whatsmeow.Client, evt interface{}) {
 		}
 
 		// 🎤 --- C: AI VOICE LISTENER (SELF-CHAT ENABLED) ---
-		// ✅ تبدیلی 1: ہم نے !v.Info.IsFromMe ہٹا دیا ہے تاکہ آپ اپنے نمبر پر بھی ٹیسٹ کر سکیں
+		// ✅ تبدیلی 1: وائس میسج چیک
 		if v.Message.AudioMessage != nil {
-			
+
 			// شرط 2: کیا یہ رپلائی ہے؟ (ContextInfo check)
 			ctxInfo := v.Message.AudioMessage.ContextInfo
 			if ctxInfo != nil && ctxInfo.StanzaID != nil {
-				
+
 				replyToID := *ctxInfo.StanzaID
 				senderID := v.Info.Sender.ToNonAD().String()
 
-				// 🔍 DEBUG PRINT: پتا چلے کہ آڈیو ڈیٹیکٹ ہوئی
+				// 🔍 DEBUG PRINT
 				fmt.Println("\n🎙️  Audio Reply Detected!")
 				fmt.Println("    ├─ Sender:", senderID)
 				fmt.Println("    └─ Reply To ID:", replyToID)
@@ -104,18 +103,27 @@ func ListenForFeatures(client *whatsmeow.Client, evt interface{}) {
 				if rdb != nil {
 					key := "ai_session:" + senderID
 					val, err := rdb.Get(context.Background(), key).Result()
-					
+
 					if err == nil {
 						var session AISession
 						json.Unmarshal([]byte(val), &session)
 
-						// 🎯 میچنگ: کیا یہ AI کے آخری میسج کا رپلائی ہے؟
-						if session.LastMsgID == replyToID {
+						// 🔥🔥🔥 UPDATED LOGIC: CHECK LIST OF IDs 🔥🔥🔥
+						// اب ہم صرف آخری میسج نہیں، بلکہ لسٹ چیک کر رہے ہیں
+						isMatch := false
+						for _, id := range session.MessageIDs {
+							if id == replyToID {
+								isMatch = true
+								break
+							}
+						}
+
+						// 🎯 اگر میچ مل گیا
+						if isMatch {
 							fmt.Println("    ✅ SESSION MATCHED! Forwarding to AI Engine...")
 							go HandleVoiceMessage(client, v)
 						} else {
-							fmt.Println("    ⚠️ Ignored: Reply was not to the last AI message.")
-							fmt.Printf("       (Expected: %s, Got: %s)\n", session.LastMsgID, replyToID)
+							fmt.Println("    ⚠️ Ignored: Reply ID not found in AI history.")
 						}
 					} else {
 						fmt.Println("    ⚠️ Ignored: No active AI session found for this user.")
@@ -125,22 +133,20 @@ func ListenForFeatures(client *whatsmeow.Client, evt interface{}) {
 		}
 
 		// --- B: ANTI-DELETE LOGIC (Personal Chats Only) ---
-		// اینٹی ڈیلیٹ صرف دوسروں کے لیے ہے، اپنے لیے نہیں
 		if !v.Info.IsGroup && !v.Info.IsFromMe {
-			
+
 			if v.Message.GetProtocolMessage() == nil {
 				saveMsgToDB(v)
 				return
 			}
 
-			if v.Message.GetProtocolMessage() != nil && 
-			   v.Message.GetProtocolMessage().GetType() == waProto.ProtocolMessage_REVOKE {
+			if v.Message.GetProtocolMessage() != nil &&
+				v.Message.GetProtocolMessage().GetType() == waProto.ProtocolMessage_REVOKE {
 				HandleAntiDeleteSystem(client, v)
 			}
 		}
 	}
 }
-
 
 
 // 🛠️ ANTI-DELETE HANDLER (Renamed to fix conflict)

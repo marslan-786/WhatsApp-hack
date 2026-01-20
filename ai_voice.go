@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json" // ✅ Added this missing import
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -19,7 +20,7 @@ import (
 	"google.golang.org/genai"
 	"google.golang.org/protobuf/proto"
 )
-
+// ... (Rest of the code remains same) ...
 // ⚙️ SETTINGS
 const PY_SERVER = "http://localhost:5000"
 const REMOTE_VOICE_URL = "https://voice-real-production.up.railway.app/speak"
