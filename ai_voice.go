@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
+	"strings" // ✅ Used in HandleVoiceCommand
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -26,8 +26,22 @@ const PY_SERVER = "http://localhost:5000"
 const REMOTE_VOICE_URL = "https://voice-real-production.up.railway.app/speak"
 
 // ==========================================
-// 1️⃣ VOICE SELECTION HANDLER (Call this in Switch Case)
-// Usage: case ".setvoice": HandleVoiceCommand(client, v, args)
+// 💓 SERVER WARMER (Keep-Alive) - MISSING FUNCTION ADDED
+// ==========================================
+func KeepServerAlive() {
+	// Har 2 minute baad Python server ko ping karega taakay wo sleep na ho
+	ticker := time.NewTicker(2 * time.Minute)
+	go func() {
+		for range ticker.C {
+			// Fake request to keep XTTS loaded in RAM
+			http.Get(PY_SERVER)
+			fmt.Println("💓 Ping sent to Python Server to keep it warm!")
+		}
+	}()
+}
+
+// ==========================================
+// 1️⃣ VOICE SELECTION HANDLER (Usage: .setvoice 1)
 // ==========================================
 func HandleVoiceCommand(client *whatsmeow.Client, v *events.Message, args []string) {
 	if len(args) < 1 {
@@ -35,11 +49,11 @@ func HandleVoiceCommand(client *whatsmeow.Client, v *events.Message, args []stri
 		return
 	}
 
-	voiceID := args[0] // e.g., "1", "2"
-	voiceFile := fmt.Sprintf("voice_%s.wav", voiceID)
+	voiceID := args[0]
+	// ✅ Strings package is used here, so error will vanish
+	voiceFile := fmt.Sprintf("voice_%s.wav", strings.TrimSpace(voiceID))
 	senderID := v.Info.Sender.ToNonAD().String()
 
-	// ✅ Save to Redis
 	ctx := context.Background()
 	err := rdb.Set(ctx, "user_voice_pref:"+senderID, voiceFile, 0).Err()
 
@@ -142,7 +156,7 @@ func HandleVoiceMessage(client *whatsmeow.Client, v *events.Message) {
 }
 
 // ==========================================
-// 🔌 HELPER FUNCTIONS (Internal Logic)
+// 🔌 HELPER FUNCTIONS
 // ==========================================
 
 // 1. Generate Voice (Check Redis for Speaker)
@@ -150,11 +164,9 @@ func GenerateVoice(text string, senderID string) ([]byte, error) {
 	fmt.Println("⚡ Sending Prompt to Python Server...")
 	startTime := time.Now()
 
-	// Redis se Voice Preference uthao
 	ctx := context.Background()
 	voiceFile, err := rdb.Get(ctx, "user_voice_pref:"+senderID).Result()
 
-	// Agar setting na mile to Default
 	if err != nil || voiceFile == "" {
 		voiceFile = "voice_1.wav"
 	}
@@ -163,7 +175,6 @@ func GenerateVoice(text string, senderID string) ([]byte, error) {
 
 	if err != nil {
 		fmt.Println("❌ Remote Failed, trying Local...", err)
-		// Fallback Logic (Optional)
 		return nil, err
 	}
 
@@ -177,10 +188,10 @@ func requestVoiceServer(url string, text string, speakerFile string) ([]byte, er
 	writer := multipart.NewWriter(body)
 
 	writer.WriteField("text", text)
-	writer.WriteField("speaker", speakerFile) // 👈 Dynamic Speaker sent here
+	writer.WriteField("speaker", speakerFile)
 	writer.Close()
 
-	// High Timeout for Heavy Load
+	// High Timeout (10 Minutes) to avoid "Context Deadline Exceeded"
 	client := http.Client{Timeout: 600 * time.Second}
 	resp, err := client.Post(url, writer.FormDataContentType(), body)
 	if err != nil {
@@ -194,11 +205,10 @@ func requestVoiceServer(url string, text string, speakerFile string) ([]byte, er
 	return io.ReadAll(resp.Body)
 }
 
-// 3. Gemini Logic (Short & Human)
+// 3. Gemini Logic
 func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, string) {
 	ctx := context.Background()
 
-	// Dynamic API Keys
 	var validKeys []string
 	if mainKey := os.Getenv("GOOGLE_API_KEY"); mainKey != "" {
 		validKeys = append(validKeys, mainKey)
@@ -237,6 +247,7 @@ func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, s
 			history = history[len(history)-1000:]
 		}
 
+		// PROMPT
 		systemPrompt := fmt.Sprintf(`System: You are a deeply caring friend.
 		🔴 RULES:
 		1. **Script:** HINDI (Devanagari).
@@ -278,7 +289,7 @@ func TranscribeAudio(audioData []byte) (string, error) {
 	return result.Text, nil
 }
 
-// 5. FFmpeg Converter (Go Side)
+// 5. FFmpeg Converter
 func ConvertToOpus(inputData []byte) ([]byte, error) {
 	inputFile := fmt.Sprintf("temp_in_%d.wav", time.Now().UnixNano())
 	outputFile := fmt.Sprintf("temp_out_%d.ogg", time.Now().UnixNano())
