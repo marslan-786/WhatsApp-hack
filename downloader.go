@@ -721,43 +721,45 @@ func handleGithub(client *whatsmeow.Client, v *events.Message, urlStr string) {
 func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 	if query == "" { return }
 	
-	// 1. ری ایکشن (تاکہ پتا چلے کمانڈ موصول ہو گئی)
+	// 1. ری ایکشن
 	react(client, v.Info.Chat, v.Info.ID, "🔍")
 	fmt.Printf("🔍 [YTS START] Query: %s\n", query)
 
-	// بوٹ کی کلین آئی ڈی لیں
 	myID := getCleanID(client.Store.ID.User)
 
-	// 🔥 FIX: 15 سیکنڈ کا ٹائم آؤٹ (تاکہ بوٹ ہینگ نہ ہو)
+	// ٹائم آؤٹ سیفٹی (15 سیکنڈ)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// 🔥 FIX: --force-ipv4 (کنکشن کو تیز بنانے کے لیے)
+	// 🔥 ANTI-BOT MAGIC COMMANDS
 	cmd := exec.CommandContext(ctx, "yt-dlp", 
 		"ytsearch5:"+query, 
 		"--print", "%(title)s|||%(id)s", 
 		"--no-playlist",
 		"--no-warnings",
-		"--force-ipv4", // نیٹ ورک ہینگ ہونے سے بچاتا ہے
+		"--force-ipv4",
+		// 👇 یہ دو لائنیں یوٹیوب کو دھوکہ دیں گی کہ یہ اینڈرائیڈ فون ہے
+		"--extractor-args", "youtube:player_client=android",
+		"--user-agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
 	)
 
-	// ایرر پکڑنے کے لیے
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	fmt.Println("⏳ [YTS] Executing yt-dlp command...")
+	fmt.Println("⏳ [YTS] Executing yt-dlp (Android Mode)...")
 	out, err := cmd.Output()
 	
-	// 3. اگر ٹائم آؤٹ ہو یا ایرر آئے
+	// --- ERROR HANDLING ---
 	if ctx.Err() == context.DeadlineExceeded {
-		fmt.Println("❌ [YTS TIMEOUT] Command took too long (>15s).")
-		replyMessage(client, v, "⚠️ *Search Timeout!* Try again later.")
+		fmt.Println("❌ [YTS TIMEOUT] Command took too long.")
+		replyMessage(client, v, "⚠️ Search Timeout! Server is slow.")
 		return
 	}
 
 	if err != nil {
+		// اگر پھر بھی ایرر آئے تو لاگ کریں
 		fmt.Printf("❌ [YTS FAIL] Error: %v\n⚠️ [STDERR]: %s\n", err, stderr.String())
-		replyMessage(client, v, "❌ Search Failed due to server error.")
+		replyMessage(client, v, "❌ YouTube blocked the search. Try using a direct link.")
 		return
 	}
 
@@ -787,12 +789,6 @@ func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 		menuText += fmt.Sprintf("📍 *[%d]* %s\n│ ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n", count, title)
 	}
 
-	if count == 0 {
-		fmt.Println("⚠️ [YTS] Parsing failed.")
-		replyMessage(client, v, "❌ Error parsing results.")
-		return
-	}
-
 	menuText += "│\n╰────────────────────╯"
 
 	resp, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
@@ -803,10 +799,9 @@ func handleYTS(client *whatsmeow.Client, v *events.Message, query string) {
 		fmt.Printf("✅ [YTS SENT] Menu sent with %d results.\n", count)
 		ytCache[resp.ID] = YTSession{Results: results, SenderID: v.Info.Sender.User, BotLID: myID}
 		go func() { time.Sleep(2 * time.Minute); delete(ytCache, resp.ID) }()
-	} else {
-		fmt.Printf("❌ [YTS SEND ERR] %v\n", err)
 	}
 }
+
 
 func handleYTDownloadMenu(client *whatsmeow.Client, v *events.Message, ytUrl string) {
 	myID := getCleanID(client.Store.ID.User)
