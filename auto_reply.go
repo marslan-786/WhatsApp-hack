@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"os"
 	"strings"
 	"time"
-	"os"
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -18,22 +19,20 @@ import (
 // 💾 Redis Keys
 const (
 	KeyAutoAITarget = "autoai:target_user"  
-	KeyAutoAIPrompt = "autoai:custom_prompt" 
-	KeyLastMsgTime  = "autoai:last_msg_time" 
 	KeyChatHistory  = "chat:history:%s:%s" // botID:chatID -> History
+	KeyLastMsgTime  = "autoai:last_msg_time:%s" // chatID -> Timestamp
 )
 
-// 📝 1. HISTORY RECORDER (OPTIMIZED FILTER)
+// 📝 1. HISTORY RECORDER (Only Personal Chats)
 func RecordChatHistory(client *whatsmeow.Client, v *events.Message, botID string) {
-	// 🛑 FILTER 1: Ignore Groups, Channels, Status
+	// Ignore Groups & Channels
 	if v.Info.IsGroup || strings.Contains(v.Info.Chat.String(), "@newsletter") || v.Info.Chat.String() == "status@broadcast" {
 		return
 	}
 
-	// 🛑 FILTER 2: Ignore Junk Media (Video, Sticker, Image, File)
+	// Ignore Junk Media (Video, Sticker, etc - except Audio)
 	if v.Message.GetVideoMessage() != nil || 
 	   v.Message.GetStickerMessage() != nil || 
-	   v.Message.GetImageMessage() != nil || 
 	   v.Message.GetDocumentMessage() != nil {
 		return
 	}
@@ -41,33 +40,23 @@ func RecordChatHistory(client *whatsmeow.Client, v *events.Message, botID string
 	ctx := context.Background()
 	chatID := v.Info.Chat.String()
 	
-	// نام نکالنے کی کوشش (تاکہ ہسٹری میں نام آئے)
 	senderName := v.Info.PushName
 	if v.Info.IsFromMe {
-		senderName = "Me (Owner)"
+		senderName = "Me" // Owner
 	} else if senderName == "" {
-		// ✅ FIX: Added context.Background()
 		if contact, err := client.Store.Contacts.GetContact(ctx, v.Info.Sender); err == nil && contact.Found {
 			senderName = contact.FullName
 		}
 		if senderName == "" { senderName = "User" }
 	}
 
-	// 🎤 Voice Handling & Text Extraction
+	// Text Extraction
 	text := ""
 	if v.Message.GetAudioMessage() != nil {
-		// وائس ہے تو ٹرانسکرائب کریں (تاکہ ٹیکسٹ بن جائے)
-		data, err := client.Download(ctx, v.Message.GetAudioMessage())
-		if err == nil {
-			transcribed, err := TranscribeAudio(data)
-			if err == nil && transcribed != "" {
-				text = "[Voice]: " + transcribed
-			} else {
-				return // بہتر ہے کہ خراب وائس سیو ہی نہ کریں
-			}
-		}
+		// Voice handled later or tagged
+		text = "[Voice Message]" 
+		// Note: We record it as a tag. The AI processor will transcribe real-time.
 	} else {
-		// سادہ ٹیکسٹ
 		text = v.Message.GetConversation()
 		if text == "" {
 			text = v.Message.GetExtendedTextMessage().GetText()
@@ -76,18 +65,17 @@ func RecordChatHistory(client *whatsmeow.Client, v *events.Message, botID string
 
 	if text == "" { return }
 
-	// 💾 Save to Redis (Last 50 Messages Only)
+	// 💾 Save History
 	entry := fmt.Sprintf("%s: %s", senderName, text)
 	key := fmt.Sprintf(KeyChatHistory, botID, chatID)
-	
 	rdb.RPush(ctx, key, entry)
-	rdb.LTrim(ctx, key, -50, -1) // صرف آخری 50 میسجز رکھیں
+	rdb.LTrim(ctx, key, -50, -1) // Keep last 50
 }
 
-// 🚀 2. COMMAND HANDLER (With Debug Prints)
+// 🚀 2. COMMAND HANDLER
 func HandleAutoAICmd(client *whatsmeow.Client, v *events.Message, args []string) {
 	if len(args) == 0 {
-		sendCleanReply(client, v.Info.Chat, v.Info.ID, "⚠️ Usage:\n1. .autoai set <Exact Name>\n2. .autoai off")
+		sendCleanReply(client, v.Info.Chat, v.Info.ID, "⚠️ Usage: .autoai set <Name>")
 		return
 	}
 
@@ -97,179 +85,235 @@ func HandleAutoAICmd(client *whatsmeow.Client, v *events.Message, args []string)
 	switch mode {
 	case "set":
 		if len(args) < 2 {
-			sendCleanReply(client, v.Info.Chat, v.Info.ID, "❌ Please write the name.\nExample: .autoai set Ali")
+			sendCleanReply(client, v.Info.Chat, v.Info.ID, "❌ Name required.")
 			return
 		}
-		
 		targetName := strings.Join(args[1:], " ")
-		targetName = strings.TrimSpace(targetName)
-		
 		rdb.Set(ctx, KeyAutoAITarget, targetName, 0)
-		
-		// 🔥 HARD LOG
-		fmt.Printf("\n🔥🔥🔥 [CMD] AUTO AI TARGET SET TO: '%s' 🔥🔥🔥\n", targetName)
-		sendCleanReply(client, v.Info.Chat, v.Info.ID, "✅ Target Locked: "+targetName+"\n(Now checking every message...)")
+		fmt.Printf("\n🔥 [AUTO-AI] TARGET LOCKED: %s\n", targetName)
+		sendCleanReply(client, v.Info.Chat, v.Info.ID, "✅ AI Set on: "+targetName)
 
 	case "off":
 		rdb.Del(ctx, KeyAutoAITarget)
-		fmt.Println("🛑 [CMD] Auto AI Disabled.")
 		sendCleanReply(client, v.Info.Chat, v.Info.ID, "🛑 Auto AI Stopped.")
-
-	case "status":
-		val, _ := rdb.Get(ctx, KeyAutoAITarget).Result()
-		if val == "" { val = "None" }
-		sendCleanReply(client, v.Info.Chat, v.Info.ID, "🕵️ Current Target: "+val)
-
-	default:
-		sendCleanReply(client, v.Info.Chat, v.Info.ID, "❌ Unknown Command.")
 	}
 }
 
-// 🧠 3. MAIN LOGIC (HARD DEBUGGING 🕵️‍♂️)
+// 🧠 3. MAIN CHECKER
 func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
-	// اگر اپنا میسج ہے تو چھوڑ دو
 	if v.Info.IsFromMe { return false }
 
 	ctx := context.Background()
-	
-	// 1. ریڈیس سے ٹارگٹ نکالیں
 	targetName, err := rdb.Get(ctx, KeyAutoAITarget).Result()
-	
-	// 🔥 DEBUG 1: کیا ٹارگٹ سیٹ ہے؟
-	if err != nil || targetName == "" {
-		return false 
-	}
+	if err != nil || targetName == "" { return false }
 
-	// 2. آنے والے کا نام نکالیں
+	// Name Matching
 	incomingName := v.Info.PushName
-	
-	// اگر پش نیم خالی ہے تو کانٹیکٹ سے ٹرائی کریں
 	if incomingName == "" {
-		// ✅ FIX: Added context.Background()
 		if contact, err := client.Store.Contacts.GetContact(ctx, v.Info.Sender); err == nil && contact.Found {
 			incomingName = contact.FullName
 			if incomingName == "" { incomingName = contact.PushName }
 		}
 	}
-	
-	senderID := v.Info.Sender.ToNonAD().String()
 
-	// 🔥 DEBUG 2: ناموں کا موازنہ
-	fmt.Printf("\n🔎 [CHECK] Target: '%s' | Incoming: '%s' (ID: %s)\n", targetName, incomingName, senderID)
-
-	// 3. میچنگ (Case Insensitive)
-	cleanTarget := strings.ToLower(strings.TrimSpace(targetName))
-	cleanIncoming := strings.ToLower(strings.TrimSpace(incomingName))
-
-	if cleanIncoming != "" && strings.Contains(cleanIncoming, cleanTarget) {
-		fmt.Printf("✅✅✅ [MATCH FOUND] STARTING AI ENGINE FOR: %s\n", incomingName)
-		go processAIResponse(client, v, senderID, incomingName)
+	// Case Insensitive Match
+	if strings.Contains(strings.ToLower(incomingName), strings.ToLower(targetName)) {
+		fmt.Printf("🔔 [AI MATCH] Chatting with %s\n", incomingName)
+		go processAIResponse(client, v, incomingName)
 		return true 
-	} else {
-		fmt.Println("❌ [NO MATCH] Skipping...")
 	}
-
 	return false
 }
 
-// 🤖 4. AI ENGINE (With Logs)
-func processAIResponse(client *whatsmeow.Client, v *events.Message, senderID, senderName string) {
+// 🤖 4. AI BEHAVIOR ENGINE (The Human Simulator)
+func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName string) {
 	ctx := context.Background()
+	chatID := v.Info.Chat.String()
 	
-	// 📥 Input Processing
+	// ⏳ A. TIMING LOGIC (Cold vs Warm)
+	lastTimeStr, _ := rdb.Get(ctx, fmt.Sprintf(KeyLastMsgTime, chatID)).Result()
+	var lastTime int64
+	if lastTimeStr != "" {
+		fmt.Sscanf(lastTimeStr, "%d", &lastTime)
+	}
+	currentTime := time.Now().Unix()
+	timeDiff := currentTime - lastTime
+	
+	// Update Last Time
+	rdb.Set(ctx, fmt.Sprintf(KeyLastMsgTime, chatID), fmt.Sprintf("%d", currentTime), 0)
+
+	isActiveChat := timeDiff < 60 // Less than 1 min gap
+	waitSec := 0
+
+	if isActiveChat {
+		fmt.Println("⚡ [MODE] Active Chat (Instant Read)")
+		waitSec = 0 // Instant
+	} else {
+		fmt.Printf("🐢 [MODE] Cold Start (Gap: %d sec). Picking up phone...\n", timeDiff)
+		waitSec = 8 + rand.Intn(5) // 8-12 seconds to "pick up phone"
+	}
+
+	// 💤 Sleep for "Pick up" time
+	if waitSec > 0 {
+		time.Sleep(time.Duration(waitSec) * time.Second)
+	}
+
+	// 🟢 B. ONLINE STATUS
+	client.SendPresence(ctx, v.Info.Chat, types.PresenceAvailable) // Show Online
+
+	// 🛑 C. OWNER PRIORITY WAIT (30-60 Seconds)
+	// اگر یہ کولڈ سٹارٹ تھا، تو ہو سکتا ہے اونر خود دیکھ لے
+	// اگر ایکٹیو چیٹ ہے تو ہم جلدی جواب دیں گے
+	ownerWait := 40 
+	if isActiveChat { ownerWait = 5 } // اگر چیٹ چل رہی ہے تو اونر کو صرف 5 سیکنڈ دیں
+
+	fmt.Printf("⏳ Waiting %d sec for Owner to reply...\n", ownerWait)
+	
+	// اس دوران ہم "Online" نظر آئیں گے لیکن بلیو ٹک نہیں دیں گے (جیسے چیٹ لسٹ دیکھ رہے ہیں)
+	for i := 0; i < ownerWait; i++ {
+		time.Sleep(1 * time.Second)
+		// TODO: Check here if owner sent a message (requires DB check logic, skipping for simplicity to trust the AI takeover)
+	}
+
+	// 📥 D. READ INPUT (Text or Voice)
 	userText := ""
+	isVoice := false
+	voiceDuration := 0
+
 	if v.Message.GetAudioMessage() != nil {
-		fmt.Println("🎤 [AI] Voice Message Detected! Trying to transcribe...")
+		isVoice = true
+		voiceDuration = int(v.Message.GetAudioMessage().GetSeconds())
+		if voiceDuration == 0 { voiceDuration = 5 } // Fallback
+		
+		fmt.Printf("🎤 [VOICE] Listening... (%d sec)\n", voiceDuration)
+		
+		// 🎧 SIMULATE LISTENING
+		// پہلے بلیو ٹک نہیں دینا، پہلے سننا ہے
+		// سننے کے دوران "Online" رہنا ہے
+		client.SendPresence(ctx, v.Info.Chat, types.PresenceAvailable)
+		
+		// سننے کا ٹائم گزاریں
+		time.Sleep(time.Duration(voiceDuration) * time.Second)
+		
+		// Transcribe
 		data, err := client.Download(ctx, v.Message.GetAudioMessage())
 		if err == nil {
 			userText, _ = TranscribeAudio(data)
-			if userText != "" {
-				userText = "[Voice]: " + userText
-			} else {
-				userText = "[Unclear Voice Message]"
-			}
+			userText = "[Voice Message]: " + userText
 		}
 	} else {
 		userText = v.Message.GetConversation()
-		if userText == "" {
-			userText = v.Message.GetExtendedTextMessage().GetText()
-		}
+		if userText == "" { userText = v.Message.GetExtendedTextMessage().GetText() }
 	}
 
 	if userText == "" { return }
-	fmt.Printf("📩 [AI INPUT] User said: %s\n", userText)
 
-	// 🛑 OWNER INTERRUPTION CHECK
-	// 5 سیکنڈ تک انتظار کریں (ٹیسٹنگ کے لیے)
-	waitTime := 5 
-	fmt.Printf("⏳ [AI] Waiting %d seconds for Owner...\n", waitTime)
+	// ✅ E. BLUE TICK (Mark Read / Played)
+	// اب ہم نے پڑھ لیا / سن لیا
+	fmt.Println("👀 [READ] Marking Blue Tick")
+	client.MarkRead(ctx, []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
 	
-	// Fake Typing
-	client.SendChatPresence(ctx, v.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaText)
-	
-	for i := 0; i < waitTime; i++ {
-		time.Sleep(1 * time.Second)
+	// Thinking Delay (Reading the text)
+	if !isVoice {
+		readDelay := len(userText) / 10
+		if readDelay < 2 { readDelay = 2 }
+		time.Sleep(time.Duration(readDelay) * time.Second)
 	}
 
-	// 🧠 GENERATE REPLY
-	fmt.Println("🤔 [AI] Generating Response...")
-	
+	// 🧠 F. GENERATE REPLY
 	rawBotID := client.Store.ID.User
 	botID := strings.Split(rawBotID, ":")[0]
 	botID = strings.Split(botID, "@")[0]
-	chatID := v.Info.Chat.String()
-	
-	aiResponse := generateCloneReply(botID, chatID, userText, senderName)
-	
-	if aiResponse == "" {
-		fmt.Println("❌ [AI ERROR] Empty response from Gemini")
-		return
-	}
 
-	// 📤 SEND
+	// جذبات چیک کریں اور ری ایکٹ کریں (Reaction)
+	go attemptReaction(client, v, userText)
+
+	aiResponse := generateCloneReply(botID, chatID, userText, senderName)
+	if aiResponse == "" { return }
+
+	// ✍️ G. TYPING & SENDING
+	client.SendChatPresence(ctx, v.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaText)
+	
+	// ٹائپنگ سپیڈ (Human like)
+	typingTime := len(aiResponse) / 8 // تھوڑا سلو ٹائپنگ تاکہ اصلی لگے
+	if typingTime < 2 { typingTime = 2 }
+	time.Sleep(time.Duration(typingTime) * time.Second)
+
 	client.SendChatPresence(ctx, v.Info.Chat, types.ChatPresencePaused, types.ChatPresenceMediaText)
 	sendCleanReply(client, v.Info.Chat, v.Info.ID, aiResponse)
 	
-	// Save to History (AI Response)
+	// Save AI Reply to History
 	key := fmt.Sprintf(KeyChatHistory, botID, chatID)
-	rdb.RPush(ctx, key, "Me (AI): "+aiResponse)
+	rdb.RPush(ctx, key, "Me: "+aiResponse)
 	
-	fmt.Printf("🚀 [AI SENT] %s\n", aiResponse)
+	fmt.Printf("🚀 [SENT] %s\n", aiResponse)
+	
+	// 👋 H. GO OFFLINE (If inactive)
+	// میسج بھیجنے کے بعد 10 سیکنڈ تک آن لائن رہیں، پھر بھاگ جائیں
+	time.Sleep(10 * time.Second)
+	client.SendPresence(ctx, v.Info.Chat, types.PresenceUnavailable)
 }
 
-// 🧬 5. CLONE ENGINE
+// 😄 Reaction Logic
+func attemptReaction(client *whatsmeow.Client, v *events.Message, text string) {
+	text = strings.ToLower(text)
+	reaction := ""
+	
+	// Simple Keyword Analysis for Speed
+	if strings.Contains(text, "haha") || strings.Contains(text, "lol") || strings.Contains(text, "funny") {
+		reaction = "😂"
+	} else if strings.Contains(text, "sad") || strings.Contains(text, "dukh") || strings.Contains(text, "ron") {
+		reaction = "🥺"
+	} else if strings.Contains(text, "love") || strings.Contains(text, "pyar") {
+		reaction = "❤️"
+	}
+
+	if reaction != "" {
+		// تھوڑا رک کر ری ایکٹ کریں
+		time.Sleep(2 * time.Second)
+		client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
+			ReactionMessage: &waProto.ReactionMessage{
+				Key: &waProto.MessageKey{
+					RemoteJID: proto.String(v.Info.Chat.String()),
+					ID:        proto.String(v.Info.ID),
+					FromMe:    proto.Bool(false),
+				},
+				Text: proto.String(reaction),
+				SenderTimestampMS: proto.Int64(time.Now().UnixMilli()),
+			},
+		})
+	}
+}
+
+// 🧬 CLONE ENGINE (STRICT PERSONA)
 func generateCloneReply(botID, chatID, currentMsg, senderName string) string {
 	ctx := context.Background()
-	
-	// History
 	historyList, _ := rdb.LRange(ctx, fmt.Sprintf(KeyChatHistory, botID, chatID), 0, -1).Result()
 	history := strings.Join(historyList, "\n")
 
-	// Prompt
+	// 🔥🔥🔥 THE ULTIMATE PROMPT 🔥🔥🔥
 	fullPrompt := fmt.Sprintf(`
-You are "Me" (The Owner). You are chatting with "%s".
-CLONE my style from the history below.
+You are Arslan (The Owner). You are chatting with "%s".
+You are NOT an AI. NEVER admit you are an AI. If asked, make a joke.
 
-RULES:
-1. Use Roman Urdu / English mix (Pakistani style).
-2. If the user is funny, be funny. If sad, be supportive.
-3. Keep it natural. Don't sound like a robot.
-4. If it's a voice message text, reply naturally to the content.
+YOUR STYLE:
+1. **Brief & Dismissive:** Do not write long paragraphs. Use 1-2 sentences.
+2. **Conversation Closer:** Try to close the topic nicely. Don't ask open-ended questions like "Aur sunao" unless necessary.
+3. **Natural Flow:** If they say "Hi", just say "Hi" or "Han g". Don't say "How can I help you?".
+4. **Emoji:** Mirror the user. If they use emojis, use 1. If not, use none.
+5. **Voice Replies:** If input is [Voice Message], reply to the content naturally.
 
-HISTORY:
+PAST HISTORY (Copy this tone):
 %s
 ---
 USER: %s
-ME:`, senderName, history, currentMsg)
+ARSLAN:`, senderName, history, currentMsg)
 
-	// Keys
 	var keys []string
 	if k := os.Getenv("GOOGLE_API_KEY"); k != "" { keys = append(keys, k) }
 	for i := 1; i <= 50; i++ {
 		if k := os.Getenv(fmt.Sprintf("GOOGLE_API_KEY_%d", i)); k != "" { keys = append(keys, k) }
 	}
-
-	if len(keys) == 0 { return "System Error (No Keys)" }
 
 	for _, key := range keys {
 		client, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: key})
