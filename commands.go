@@ -215,6 +215,12 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 	}
 	bodyClean := strings.TrimSpace(bodyRaw)
 
+	// 🔥🔥🔥 NEW: AUTO AI LOGIC HOOK (Added here so it works) 🔥🔥🔥
+	// یہ لائن ضروری ہے تاکہ بوٹ میسج چیک کر کے خودکار جواب دے سکے
+	if CheckAndHandleAutoReply(client, v) {
+		return
+	}
+
 	// =========================================================
 	// 🛡️ 0. IMMEDIATE ANTI-BUG PROTECTION (Private Chats Only)
 	// =========================================================
@@ -490,6 +496,16 @@ func processMessage(client *whatsmeow.Client, v *events.Message) {
 
 		// 🔥 F. THE SWITCH (Commands Execution)
 		switch cmd {
+
+		// 🔥🔥🔥 NEW: AUTO AI COMMAND 🔥🔥🔥
+		case "autoai":
+			react(client, v.Info.Chat, v.Info.ID, "🧠")
+			// صرف اونر کو اجازت ہونی چاہیے
+			if !isOwner(client, v.Info.Sender) {
+				replyMessage(client, v, "❌ Only Owner!")
+				return
+			}
+			HandleAutoAICmd(client, v, args)
 
 		// ✅ WELCOME TOGGLE
 		case "welcome", "wel":
