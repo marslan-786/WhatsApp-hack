@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/rand"
-	"os"
 	"strings"
 	"time"
 
@@ -24,8 +22,21 @@ const (
 	KeyChatHistory  = "chat:history:%s:%s" // botID:chatID -> History
 )
 
-// 📝 1. HISTORY RECORDER
+// 📝 1. HISTORY RECORDER (OPTIMIZED FILTER)
 func RecordChatHistory(client *whatsmeow.Client, v *events.Message, botID string) {
+	// 🛑 FILTER 1: Ignore Groups, Channels, Status
+	if v.Info.IsGroup || strings.Contains(v.Info.Chat.String(), "@newsletter") || v.Info.Chat.String() == "status@broadcast" {
+		return
+	}
+
+	// 🛑 FILTER 2: Ignore Junk Media (Video, Sticker, Image, File)
+	if v.Message.GetVideoMessage() != nil || 
+	   v.Message.GetStickerMessage() != nil || 
+	   v.Message.GetImageMessage() != nil || 
+	   v.Message.GetDocumentMessage() != nil {
+		return
+	}
+
 	ctx := context.Background()
 	chatID := v.Info.Chat.String()
 	
@@ -34,18 +45,28 @@ func RecordChatHistory(client *whatsmeow.Client, v *events.Message, botID string
 	if v.Info.IsFromMe {
 		senderName = "Me (Owner)"
 	} else if senderName == "" {
-		// اگر پش نیم نہیں ہے تو کانٹیکٹ لسٹ سے نکالیں
-		if contact, err := client.Store.Contacts.GetContact(v.Info.Sender); err == nil && contact.Found {
+		// ✅ FIX: Added context.Background()
+		if contact, err := client.Store.Contacts.GetContact(ctx, v.Info.Sender); err == nil && contact.Found {
 			senderName = contact.FullName
 		}
 		if senderName == "" { senderName = "User" }
 	}
 
-	// میسج کا ٹیکسٹ نکالیں
+	// 🎤 Voice Handling & Text Extraction
 	text := ""
 	if v.Message.GetAudioMessage() != nil {
-		text = "[Voice Message]"
+		// وائس ہے تو ٹرانسکرائب کریں (تاکہ ٹیکسٹ بن جائے)
+		data, err := client.Download(ctx, v.Message.GetAudioMessage())
+		if err == nil {
+			transcribed, err := TranscribeAudio(data)
+			if err == nil && transcribed != "" {
+				text = "[Voice]: " + transcribed
+			} else {
+				return // بہتر ہے کہ خراب وائس سیو ہی نہ کریں
+			}
+		}
 	} else {
+		// سادہ ٹیکسٹ
 		text = v.Message.GetConversation()
 		if text == "" {
 			text = v.Message.GetExtendedTextMessage().GetText()
@@ -54,15 +75,12 @@ func RecordChatHistory(client *whatsmeow.Client, v *events.Message, botID string
 
 	if text == "" { return }
 
-	// 💾 Save to Redis (Last 50 Messages)
+	// 💾 Save to Redis (Last 50 Messages Only)
 	entry := fmt.Sprintf("%s: %s", senderName, text)
 	key := fmt.Sprintf(KeyChatHistory, botID, chatID)
 	
 	rdb.RPush(ctx, key, entry)
-	rdb.LTrim(ctx, key, -50, -1) // صرف آخری 50 رکھیں
-
-	// لاگ (تاکہ پتا چلے ہسٹری سیو ہو رہی ہے)
-	// fmt.Printf("💾 [HISTORY] Saved for %s: %s\n", senderName, text)
+	rdb.LTrim(ctx, key, -50, -1) // صرف آخری 50 میسجز رکھیں
 }
 
 // 🚀 2. COMMAND HANDLER (With Debug Prints)
@@ -118,7 +136,6 @@ func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
 	
 	// 🔥 DEBUG 1: کیا ٹارگٹ سیٹ ہے؟
 	if err != nil || targetName == "" {
-		// fmt.Println("🕵️ [DEBUG] AutoAI: No Target Set (Skipping)")
 		return false 
 	}
 
@@ -127,7 +144,8 @@ func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
 	
 	// اگر پش نیم خالی ہے تو کانٹیکٹ سے ٹرائی کریں
 	if incomingName == "" {
-		if contact, err := client.Store.Contacts.GetContact(v.Info.Sender); err == nil && contact.Found {
+		// ✅ FIX: Added context.Background()
+		if contact, err := client.Store.Contacts.GetContact(ctx, v.Info.Sender); err == nil && contact.Found {
 			incomingName = contact.FullName
 			if incomingName == "" { incomingName = contact.PushName }
 		}
@@ -135,20 +153,15 @@ func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
 	
 	senderID := v.Info.Sender.ToNonAD().String()
 
-	// 🔥 DEBUG 2: ناموں کا موازنہ (Comparison)
+	// 🔥 DEBUG 2: ناموں کا موازنہ
 	fmt.Printf("\n🔎 [CHECK] Target: '%s' | Incoming: '%s' (ID: %s)\n", targetName, incomingName, senderID)
 
 	// 3. میچنگ (Case Insensitive)
-	// دونوں کو چھوٹا کر کے اور اسپیس ختم کر کے چیک کریں
 	cleanTarget := strings.ToLower(strings.TrimSpace(targetName))
 	cleanIncoming := strings.ToLower(strings.TrimSpace(incomingName))
 
-	// "Contains" استعمال کر رہے ہیں تاکہ اگر نام "Ali Khan" ہو اور آپ "Ali" لکھیں تو بھی چل جائے
 	if cleanIncoming != "" && strings.Contains(cleanIncoming, cleanTarget) {
-		
 		fmt.Printf("✅✅✅ [MATCH FOUND] STARTING AI ENGINE FOR: %s\n", incomingName)
-		
-		// پروسیسنگ شروع
 		go processAIResponse(client, v, senderID, incomingName)
 		return true 
 	} else {
@@ -166,7 +179,7 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderID, se
 	userText := ""
 	if v.Message.GetAudioMessage() != nil {
 		fmt.Println("🎤 [AI] Voice Message Detected! Trying to transcribe...")
-		data, err := client.Download(context.Background(), v.Message.GetAudioMessage())
+		data, err := client.Download(ctx, v.Message.GetAudioMessage())
 		if err == nil {
 			userText, _ = TranscribeAudio(data)
 			if userText != "" {
@@ -186,8 +199,7 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderID, se
 	fmt.Printf("📩 [AI INPUT] User said: %s\n", userText)
 
 	// 🛑 OWNER INTERRUPTION CHECK
-	// 40 سیکنڈ تک انتظار کریں اور دیکھیں کہ مالک جواب دیتا ہے یا نہیں
-	// (ٹیسٹنگ کے لیے فی الحال 5 سیکنڈ رکھا ہے، آپ اسے بڑھا سکتے ہیں)
+	// 5 سیکنڈ تک انتظار کریں (ٹیسٹنگ کے لیے)
 	waitTime := 5 
 	fmt.Printf("⏳ [AI] Waiting %d seconds for Owner...\n", waitTime)
 	
@@ -196,14 +208,16 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderID, se
 	
 	for i := 0; i < waitTime; i++ {
 		time.Sleep(1 * time.Second)
-		// یہاں آپ مزید چیک لگا سکتے ہیں کہ مالک نے میسج تو نہیں کر دیا
 	}
 
 	// 🧠 GENERATE REPLY
 	fmt.Println("🤔 [AI] Generating Response...")
 	
-	botID := strings.Split(client.Store.ID.User, ":")[0]
+	rawBotID := client.Store.ID.User
+	botID := strings.Split(rawBotID, ":")[0]
+	botID = strings.Split(botID, "@")[0]
 	chatID := v.Info.Chat.String()
+	
 	aiResponse := generateCloneReply(botID, chatID, userText, senderName)
 	
 	if aiResponse == "" {
@@ -215,9 +229,7 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderID, se
 	client.SendChatPresence(ctx, v.Info.Chat, types.ChatPresencePaused, types.ChatPresenceMediaText)
 	sendCleanReply(client, v.Info.Chat, v.Info.ID, aiResponse)
 	
-	// Save to History
-	RecordChatHistory(client, v, botID) // User Msg Recorded above? No, re-record AI response
-	
+	// Save to History (AI Response)
 	key := fmt.Sprintf(KeyChatHistory, botID, chatID)
 	rdb.RPush(ctx, key, "Me (AI): "+aiResponse)
 	
