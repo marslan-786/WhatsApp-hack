@@ -70,6 +70,7 @@ func HandleAutoAICmd(client *whatsmeow.Client, v *events.Message, args []string)
 }
 
 // 🧠 2. MAIN LOGIC (Intercepts Message)
+// 🧠 2. MAIN LOGIC (Updated with LID Resolver)
 func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
 	ctx := context.Background()
 	
@@ -79,21 +80,39 @@ func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
 		return false // کوئی ٹارگٹ سیٹ نہیں ہے
 	}
 
-	sender := v.Info.Sender.ToNonAD().String()
+	// 🕵️ 2. SENDER RESOLVER (LID to Phone Number Fix)
+	senderJID := v.Info.Sender.ToNonAD()
+	senderString := senderJID.String()
 
-	// 🔍 DEBUG PRINT (تاکہ پتا چلے یہ ہر میسج کو چیک کر رہا ہے)
-	// fmt.Printf("🔍 AutoAI Checking: Sender [%s] vs Target [%s]\n", sender, targetUser)
+	// اگر آنے والا میسج LID ہے (مطلب اس میں @lid ہے یا نمبر عجیب ہے)
+	if senderJID.Server == types.HiddenUserServer || strings.Contains(senderString, "@lid") {
+		// ڈیٹا بیس (Contact Store) سے پوچھیں کہ یہ LID کس کا ہے؟
+		contact, err := client.Store.Contacts.GetContact(senderJID)
+		if err == nil && contact.Found {
+			// اگر کانٹیکٹ مل گیا تو اس کا اصلی فون نمبر اٹھا لیں
+			// نوٹ: کبھی کبھی contact.JID خالی ہوتا ہے، اس لیے چیک ضروری ہے
+			if contact.JID.User != "" {
+				senderString = contact.JID.ToNonAD().String()
+				// fmt.Printf("🔄 [AUTO-AI] Converted LID %s -> %s\n", senderJID.String(), senderString)
+			}
+		}
+	}
 
-	// 2. اگر بھیجنے والا وہی ہے جو سیٹ کیا تھا
-	if sender == targetUser {
-		fmt.Printf("\n🔔 [AUTO-AI] MATCH FOUND! Message from: %s\n", sender)
+	// 🔍 DEBUG PRINT (اب اصلی نمبر پرنٹ ہوگا)
+	// fmt.Printf("🔍 AutoAI Checking: Sender [%s] vs Target [%s]\n", senderString, targetUser)
+
+	// 3. اب میچ کریں (اب دونوں طرف فون نمبر ہوگا)
+	if senderString == targetUser {
+		fmt.Printf("\n🔔 [AUTO-AI] MATCH FOUND! Message from: %s\n", senderString)
 		
 		// پروسیسنگ تھریڈ میں ڈال دیں
-		go processHumanReply(client, v, sender)
-		return true // True کا مطلب: مین کوڈ (commands.go) اس پر مزید کام نہ کرے
+		go processHumanReply(client, v, senderString)
+		return true 
 	}
 
 	return false
+}
+
 }
 
 // 🤖 3. HUMAN BEHAVIOR ENGINE (With Logs & Multi-Key)
