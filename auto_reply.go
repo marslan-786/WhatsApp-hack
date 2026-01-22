@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	waBinary "go.mau.fi/whatsmeow/binary" // ✅ Fixed Import for Node
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -25,6 +26,26 @@ const (
 	KeyStickyOnline  = "autoai:sticky_online:%s"
 	KeyLastActivity  = "autoai:last_activity:%s"
 )
+
+// 🛠️ HELPER: Force "Blue Mic" (Played Receipt) using WriteNode
+func sendPlayedReceipt(client *whatsmeow.Client, chat types.JID, msgID types.MessageID) {
+	// Construct the XML node manually
+	node := waBinary.Node{
+		Tag: "receipt",
+		Attrs: waBinary.Attrs{
+			"to":   chat,
+			"type": "played", // This triggers the Blue Mic
+			"id":   msgID,
+		},
+	}
+	// Use WriteNode (Public API) instead of SendNode
+	_, err := client.WriteNode(node)
+	if err != nil {
+		fmt.Println("⚠️ Failed to write played receipt:", err)
+	} else {
+		fmt.Println("🔵 [RECEIPT] Sent Blue Mic (Played).")
+	}
+}
 
 // 🕵️ HELPER: Get BEST Name
 func GetSenderName(client *whatsmeow.Client, v *events.Message) string {
@@ -276,13 +297,8 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 		}
 
 		// 🎯 FORCE BLUE MIC (Played Receipt)
-		// Using the official method provided by whatsmeow
-		err := client.MarkPlayed(ctx, v.Info.ID, time.Now(), v.Info.Chat, v.Info.Sender)
-		if err != nil {
-			fmt.Println("⚠️ Failed to send Played Receipt:", err)
-		} else {
-			fmt.Println("🔵 [RECEIPT] Sent Blue Mic (Played).")
-		}
+		// Now using WriteNode which is the correct way
+		sendPlayedReceipt(client, v.Info.Chat, v.Info.ID)
 
 		fmt.Println("🔄 Transcribing...")
 		data, err := client.Download(ctx, audioMsg)
