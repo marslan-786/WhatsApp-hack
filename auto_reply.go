@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/binary" // New Import for Manual Node
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -23,8 +24,22 @@ const (
 	KeyLastMsgTime   = "autoai:last_msg_time:%s"
 	KeyLastOwnerMsg  = "autoai:last_owner_msg:%s"
 	KeyStickyOnline  = "autoai:sticky_online:%s"
-	KeyLastActivity  = "autoai:last_activity:%s" // New: To track 2-minute session
+	KeyLastActivity  = "autoai:last_activity:%s"
 )
+
+// 🛠️ HELPER: Force "Blue Mic" (Played Receipt)
+func sendPlayedReceipt(client *whatsmeow.Client, chat types.JID, msgID types.MessageID) {
+	// Manually constructing the XML node for "played" status
+	node := binary.Node{
+		Tag: "receipt",
+		Attrs: binary.Attrs{
+			"to":   chat,
+			"type": "played", // This triggers the Blue Mic
+			"id":   msgID,
+		},
+	}
+	client.SendNode(node)
+}
 
 // 🕵️ HELPER: Get BEST Name
 func GetSenderName(client *whatsmeow.Client, v *events.Message) string {
@@ -187,7 +202,6 @@ func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
 	if lastOwnerMsgStr != "" {
 		var lastOwnerMsg int64
 		fmt.Sscanf(lastOwnerMsgStr, "%d", &lastOwnerMsg)
-		// If owner messaged within last 60 seconds, abort.
 		if time.Now().Unix()-lastOwnerMsg < 60 {
 			fmt.Println("🛑 [ABORT] Owner is active (Wait 1 min).")
 			return false
@@ -251,11 +265,10 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 			return
 		}
 	} else {
-		// Active chat: Minimal natural pause
 		time.Sleep(1 * time.Second)
 	}
 
-	// 2. MARK READ (Blue Ticks)
+	// 2. MARK READ (Blue Ticks - "Seen")
 	client.SendPresence(ctx, types.PresenceAvailable)
 	client.MarkRead(ctx, []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
 
@@ -277,9 +290,10 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 			return
 		}
 
-		// 🎯 SEND PLAYED RECEIPT (Blue Mic Trigger)
-		// Triggering MarkRead again after delay often forces the "Played" status update on client side
-		client.MarkRead(ctx, []types.MessageID{v.Info.ID}, time.Now(), v.Info.Chat, v.Info.Sender)
+		// 🎯 FORCE BLUE MIC (Played Receipt)
+		// MarkRead only sends "read". We need to send "played" manually.
+		sendPlayedReceipt(client, v.Info.Chat, v.Info.ID)
+		fmt.Println("🔵 [RECEIPT] Sent Blue Mic (Played).")
 
 		fmt.Println("🔄 Transcribing...")
 		data, err := client.Download(ctx, audioMsg)
@@ -299,7 +313,6 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 		}
 
 		if userText != "" {
-			// Calculate Reading Time (Avg 5 chars per word, 4 words per sec)
 			wordCount := len(strings.Split(userText, " "))
 			readDelay := int(math.Ceil(float64(wordCount) / 4.0))
 
@@ -336,14 +349,13 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 	// ✍️ TYPING LOGIC (SMART TIMING)
 	client.SendChatPresence(ctx, v.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaText)
 
-	// Calculate typing speed
 	respLen := len(aiResponse)
 	typingSec := 0
 
 	if !isColdStart {
-		typingSec = respLen / 15 // Fast: 15 chars per sec
+		typingSec = respLen / 15 // Fast
 	} else {
-		typingSec = respLen / 8 // Normal: 8 chars per sec
+		typingSec = respLen / 8 // Normal
 	}
 
 	if typingSec < 2 {
@@ -368,15 +380,13 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 
 	fmt.Printf("🚀 Sent: %s\n", aiResponse)
 
-	// Keep Online: Refresh Activity Timer
 	rdb.Set(ctx, fmt.Sprintf(KeyLastActivity, chatID), time.Now().Unix(), 0)
 }
 
-// 🛡️ SMART ONLINE KEEPER (Stays online for 2 mins after last activity)
+// 🛡️ SMART ONLINE KEEPER
 func keepOnlineSmart(client *whatsmeow.Client, jid types.JID, chatID string) {
 	ctx := context.Background()
 	for {
-		// Check Last Activity
 		lastActivityStr, _ := rdb.Get(ctx, fmt.Sprintf(KeyLastActivity, chatID)).Result()
 		if lastActivityStr == "" {
 			client.SendPresence(ctx, types.PresenceUnavailable)
@@ -386,14 +396,12 @@ func keepOnlineSmart(client *whatsmeow.Client, jid types.JID, chatID string) {
 		var lastActivity int64
 		fmt.Sscanf(lastActivityStr, "%d", &lastActivity)
 
-		// If idle for more than 120 seconds (2 mins), Go Offline
 		if time.Now().Unix()-lastActivity > 120 {
 			fmt.Println("💤 [OFFLINE] Session expired (2 mins).")
 			client.SendPresence(ctx, types.PresenceUnavailable)
 			return
 		}
 
-		// Check Owner Interruption
 		lastOwnerMsgStr, _ := rdb.Get(ctx, fmt.Sprintf(KeyLastOwnerMsg, chatID)).Result()
 		if lastOwnerMsgStr != "" {
 			var lastOwnerMsg int64
@@ -404,7 +412,7 @@ func keepOnlineSmart(client *whatsmeow.Client, jid types.JID, chatID string) {
 		}
 
 		client.SendPresence(ctx, types.PresenceAvailable)
-		time.Sleep(5 * time.Second) // Refresh online status every 5s
+		time.Sleep(5 * time.Second)
 	}
 }
 
@@ -415,7 +423,6 @@ func waitAndCheckOwner(ctx context.Context, chatID string, seconds int) bool {
 		if lastOwnerMsgStr != "" {
 			var lastOwnerMsg int64
 			fmt.Sscanf(lastOwnerMsgStr, "%d", &lastOwnerMsg)
-			// Immediate abort if owner messaged in last 5 seconds
 			if time.Now().Unix()-lastOwnerMsg < 5 {
 				fmt.Println("🛑 Owner Active! Aborting.")
 				return true
