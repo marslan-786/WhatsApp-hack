@@ -83,65 +83,59 @@ func ListenForFeatures(client *whatsmeow.Client, evt interface{}) {
 			return
 		}
 
-		// 🎤 --- C: AI VOICE LISTENER (UPDATED) ---
+		// 🎤 --- C: AI VOICE LISTENER ---
 		if v.Message.AudioMessage != nil {
 			
-			senderID := v.Info.Sender.ToNonAD().String()
-			
-			// 🔥🔥🔥 FIX START: AUTO-AI TARGET CHECK 🔥🔥🔥
-			// سب سے پہلے چیک کریں کہ کیا یہ "Auto-AI Target" ہے؟
-			// اگر ہاں، تو پرانے سسٹم کو کہیں کہ "تم دخل نہ دو"، نیا سسٹم (auto_reply.go) اسے خود سنبھال لے گا۔
+			// 🔥🔥🔥 STEP 1: CHECK IF IT'S AN AUTO-AI TARGET 🔥🔥🔥
+			// اگر یہ وہ بندہ ہے جس پر Auto-AI لگا ہے، تو اس فنکشن کو یہیں روک دو۔
+			// تاکہ یہ "Ignored" کا ایرر نہ دے، اور کنٹرول processMessage کے پاس چلا جائے۔
 			
 			ctx := context.Background()
-			targets, _ := rdb.SMembers(ctx, "autoai:targets_set").Result()
-			
-			// نام اور نمبر دونوں چیک کریں
-			senderName := ""
-			if v.Info.PushName != "" {
-				senderName = v.Info.PushName
-			} else {
-				// اگر پش نیم نہیں ہے تو کانٹیکٹ سے نکالیں
-				if contact, err := client.Store.Contacts.GetContact(ctx, v.Info.Sender); err == nil && contact.Found {
-					senderName = contact.FullName
-					if senderName == "" { senderName = contact.PushName }
+			// Redis سے ٹارگٹ لسٹ نکالیں
+			targets, err := rdb.SMembers(ctx, "autoai:targets_set").Result()
+			if err == nil && len(targets) > 0 {
+				
+				// نام نکالیں
+				senderName := v.Info.PushName
+				if senderName == "" {
+					if contact, err := client.Store.Contacts.GetContact(ctx, v.Info.Sender); err == nil && contact.Found {
+						senderName = contact.FullName
+						if senderName == "" { senderName = contact.PushName }
+					}
+				}
+				
+				senderID := v.Info.Sender.User
+
+				// میچنگ کریں
+				isTarget := false
+				incomingLower := strings.ToLower(senderName)
+				for _, t := range targets {
+					tLower := strings.ToLower(strings.TrimSpace(t))
+					// نام یا نمبر میچ کریں
+					if (senderName != "" && strings.Contains(incomingLower, tLower)) || strings.Contains(senderID, tLower) {
+						isTarget = true
+						break
+					}
+				}
+
+				if isTarget {
+					// ✅ یہ ٹارگٹ ہے! یہاں سے نکل جاؤ تاکہ processMessage سنبھال لے۔
+					// fmt.Println("⏩ [SKIP] Voice is for Auto-AI. Skipping Legacy Handler.")
+					return 
 				}
 			}
-			
-			isTarget := false
-			senderNameLower := strings.ToLower(senderName)
-			
-			for _, t := range targets {
-				tLower := strings.ToLower(strings.TrimSpace(t))
-				// نام میچ کریں
-				if senderName != "" && strings.Contains(senderNameLower, tLower) {
-					isTarget = true
-					break
-				}
-				// اگر نام نہیں ملا تو نمبر میچ کریں (Backup)
-				if strings.Contains(senderID, tLower) {
-					isTarget = true
-					break
-				}
-			}
-
-			if isTarget {
-				// ✅ یہ ٹارگٹ ہے! اسے پرانے فنکشن سے بچا لیں
-				fmt.Printf("🎤 [PASS-THROUGH] Auto-AI Voice from '%s' detected! Letting Auto-AI handle it.\n", senderName)
-				return // <--- یہ ریٹرن بہت ضروری ہے تاکہ نیچے والا 'Ignored' کوڈ نہ چلے
-			}
-			// 🔥🔥🔥 FIX END 🔥🔥🔥
+			// 🔥🔥🔥 END CHECK 🔥🔥🔥
 
 
-			// --- OLD LEGACY VOICE LOGIC (For .gpt command users) ---
+			// --- OLD LEGACY LOGIC (صرف ان کے لیے جو Auto-AI پر نہیں ہیں) ---
 			ctxInfo := v.Message.AudioMessage.ContextInfo
 			if ctxInfo != nil && ctxInfo.StanzaID != nil {
 
 				replyToID := *ctxInfo.StanzaID
+				senderID := v.Info.Sender.ToNonAD().String()
 
-				// 🔍 DEBUG PRINT
-				fmt.Println("\n🎙️  Audio Reply Detected (Legacy Check)!")
-				fmt.Println("    ├─ Sender:", senderID)
-				fmt.Println("    └─ Reply To ID:", replyToID)
+				// 🔍 DEBUG PRINT (Legacy)
+				// fmt.Println("\n🎙️  Audio Reply Detected (Legacy)!")
 
 				if rdb != nil {
 					key := "ai_session:" + senderID
@@ -160,20 +154,19 @@ func ListenForFeatures(client *whatsmeow.Client, evt interface{}) {
 						}
 
 						if isMatch {
-							fmt.Println("    ✅ SESSION MATCHED! Forwarding to Legacy AI Engine...")
+							fmt.Println("    ✅ SESSION MATCHED! Forwarding to Legacy AI...")
 							go HandleVoiceMessage(client, v)
 						} else {
-							fmt.Println("    ⚠️ Ignored: Reply ID not found in Legacy AI history.")
+							// fmt.Println("    ⚠️ Ignored: Legacy ID mismatch.")
 						}
 					} else {
-						// یہ ایرر اب ٹارگٹ یوزرز کے لیے نہیں آئے گا
-						fmt.Println("    ⚠️ Ignored: No active Legacy AI session found.")
+						// fmt.Println("    ⚠️ Ignored: No Legacy session.")
 					}
 				}
 			}
 		}
 
-		// --- B: ANTI-DELETE LOGIC (Personal Chats Only) ---
+		// --- B: ANTI-DELETE LOGIC ---
 		if !v.Info.IsGroup && !v.Info.IsFromMe {
 			if v.Message.GetProtocolMessage() == nil {
 				saveMsgToDB(v)
