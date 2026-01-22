@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
-	waBinary "go.mau.fi/whatsmeow/binary" // ✅ Fixed Import for Node
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -26,26 +25,6 @@ const (
 	KeyStickyOnline  = "autoai:sticky_online:%s"
 	KeyLastActivity  = "autoai:last_activity:%s"
 )
-
-// 🛠️ HELPER: Force "Blue Mic" (Played Receipt) using WriteNode
-func sendPlayedReceipt(client *whatsmeow.Client, chat types.JID, msgID types.MessageID) {
-	// Construct the XML node manually
-	node := waBinary.Node{
-		Tag: "receipt",
-		Attrs: waBinary.Attrs{
-			"to":   chat,
-			"type": "played", // This triggers the Blue Mic
-			"id":   msgID,
-		},
-	}
-	// Use WriteNode (Public API) instead of SendNode
-	_, err := client.WriteNode(node)
-	if err != nil {
-		fmt.Println("⚠️ Failed to write played receipt:", err)
-	} else {
-		fmt.Println("🔵 [RECEIPT] Sent Blue Mic (Played).")
-	}
-}
 
 // 🕵️ HELPER: Get BEST Name
 func GetSenderName(client *whatsmeow.Client, v *events.Message) string {
@@ -244,7 +223,7 @@ func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
 	return false
 }
 
-// 🤖 4. AI ENGINE (SMART TIMING)
+// 🤖 4. AI ENGINE (SMART TIMING & HUMAN BEHAVIOR)
 func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName string) {
 	ctx := context.Background()
 	chatID := v.Info.Chat.String()
@@ -263,43 +242,57 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 	rdb.Set(ctx, fmt.Sprintf(KeyLastActivity, chatID), currentTime, 0)
 	go keepOnlineSmart(client, v.Info.Chat, chatID)
 
-	// 1. DELAY BEFORE READING (Simulation of picking up phone)
+	// ==========================================
+	// 1️⃣ STEP ONE: PICKUP DELAY (Before Opening Chat)
+	// ==========================================
 	if isColdStart {
-		delay := 10 + rand.Intn(3) // 10 to 12 seconds
-		fmt.Printf("💤 [COLD START] Waiting %ds before reading...\n", delay)
+		delay := 10 + rand.Intn(3) // 10-12s delay (Fetching phone)
+		fmt.Printf("💤 [COLD START] Waiting %ds before opening chat...\n", delay)
 		if interrupted := waitAndCheckOwner(ctx, chatID, delay); interrupted {
 			return
 		}
 	} else {
-		time.Sleep(1 * time.Second)
+		time.Sleep(1 * time.Second) // Active chat natural pause
 	}
 
-	// 2. MARK READ (Blue Ticks)
+	// ==========================================
+	// 2️⃣ STEP TWO: OPEN CHAT (BLUE TICKS)
+	// ==========================================
 	client.SendPresence(ctx, types.PresenceAvailable)
-	client.MarkRead(ctx, []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
+	// Mark as "Read" (Blue Ticks)
+	client.MarkRead(ctx, []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender, types.ReceiptTypeRead)
+	fmt.Println("👀 [SEEN] Sent Blue Ticks (Read).")
 
-	// 🕵️ PROCESSING INPUT
+	// ==========================================
+	// 3️⃣ STEP THREE: PROCESSING / LISTENING
+	// ==========================================
 	userText := ""
 	audioMsg := GetAudioFromMessage(v.Message)
 
 	if audioMsg != nil {
-		// 🎤 VOICE LOGIC
+		// --- AUDIO HANDLING ---
 		audioSec := int(audioMsg.GetSeconds())
 		if audioSec == 0 {
 			audioSec = 3
 		}
 
-		fmt.Printf("🎤 [VOICE] Duration: %ds. Listening...\n", audioSec)
-
-		// Wait EXACTLY audio length (Simulation of listening)
+		fmt.Printf("🎤 [VOICE] Listening for %ds (Human Mode)...\n", audioSec)
+		
+		// Wait while "Listening" (Owner check enabled)
 		if interrupted := waitAndCheckOwner(ctx, chatID, audioSec); interrupted {
 			return
 		}
 
-		// 🎯 FORCE BLUE MIC (Played Receipt)
-		// Now using WriteNode which is the correct way
-		sendPlayedReceipt(client, v.Info.Chat, v.Info.ID)
+		// --- SEND BLUE MIC (PLAYED) ---
+		// Valid for Latest Whatsmeow: MarkRead with ReceiptTypePlayed
+		err := client.MarkRead(ctx, []types.MessageID{v.Info.ID}, time.Now(), v.Info.Chat, v.Info.Sender, types.ReceiptTypePlayed)
+		if err != nil {
+			fmt.Printf("⚠️ Failed to send Blue Mic: %v\n", err)
+		} else {
+			fmt.Println("🔵 [PLAYED] Sent Blue Mic (Played).")
+		}
 
+		// Transcribe after "listening"
 		fmt.Println("🔄 Transcribing...")
 		data, err := client.Download(ctx, audioMsg)
 		if err == nil {
@@ -311,7 +304,7 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 		}
 
 	} else {
-		// 📝 TEXT LOGIC
+		// --- TEXT HANDLING ---
 		userText = v.Message.GetConversation()
 		if userText == "" {
 			userText = v.Message.GetExtendedTextMessage().GetText()
@@ -319,13 +312,11 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 
 		if userText != "" {
 			wordCount := len(strings.Split(userText, " "))
-			readDelay := int(math.Ceil(float64(wordCount) / 4.0))
+			// Calculate reading time
+			readDelay := int(math.Ceil(float64(wordCount) / 4.0)) 
+			if readDelay < 2 { readDelay = 1 }
 
-			if readDelay < 2 {
-				readDelay = 1
-			}
-
-			fmt.Printf("👀 [READING] Delay: %ds\n", readDelay)
+			fmt.Printf("👀 [READING] Reading text for %ds...\n", readDelay)
 			if interrupted := waitAndCheckOwner(ctx, chatID, readDelay); interrupted {
 				return
 			}
@@ -336,7 +327,9 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 		return
 	}
 
-	// 🧠 GENERATE REPLY
+	// ==========================================
+	// 4️⃣ STEP FOUR: GENERATE REPLY & TYPE
+	// ==========================================
 	rawBotID := client.Store.ID.User
 	botID := strings.Split(rawBotID, ":")[0]
 	botID = strings.Split(botID, "@")[0]
@@ -351,40 +344,41 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 		return
 	}
 
-	// ✍️ TYPING LOGIC (SMART TIMING)
+	// Start Typing Indicator
 	client.SendChatPresence(ctx, v.Info.Chat, types.ChatPresenceComposing, types.ChatPresenceMediaText)
 
+	// Calculate Typing Duration
 	respLen := len(aiResponse)
 	typingSec := 0
-
 	if !isColdStart {
 		typingSec = respLen / 15 // Fast
 	} else {
 		typingSec = respLen / 8 // Normal
 	}
-
-	if typingSec < 2 {
-		typingSec = 2
-	}
-	if typingSec > 15 {
-		typingSec = 15
-	}
+	if typingSec < 2 { typingSec = 2 }
+	if typingSec > 15 { typingSec = 15 }
 
 	fmt.Printf("✍️ [TYPING] Duration: %ds\n", typingSec)
+	
+	// Wait while "Typing"
 	if interrupted := waitAndCheckOwner(ctx, chatID, typingSec); interrupted {
 		client.SendChatPresence(ctx, v.Info.Chat, types.ChatPresencePaused, types.ChatPresenceMediaText)
 		return
 	}
 
-	// 🚀 SEND
+	// ==========================================
+	// 5️⃣ STEP FIVE: SEND MESSAGE
+	// ==========================================
 	client.SendChatPresence(ctx, v.Info.Chat, types.ChatPresencePaused, types.ChatPresenceMediaText)
 	sendCleanReply(client, v.Info.Chat, v.Info.ID, aiResponse)
 
+	// Save to history
 	key := fmt.Sprintf(KeyChatHistory, botID, chatID)
 	rdb.RPush(ctx, key, "Me: "+aiResponse)
 
 	fmt.Printf("🚀 Sent: %s\n", aiResponse)
 
+	// Keep sticky online alive
 	rdb.Set(ctx, fmt.Sprintf(KeyLastActivity, chatID), time.Now().Unix(), 0)
 }
 
