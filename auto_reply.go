@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/binary" // New Import for Manual Node
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -26,20 +25,6 @@ const (
 	KeyStickyOnline  = "autoai:sticky_online:%s"
 	KeyLastActivity  = "autoai:last_activity:%s"
 )
-
-// 🛠️ HELPER: Force "Blue Mic" (Played Receipt)
-func sendPlayedReceipt(client *whatsmeow.Client, chat types.JID, msgID types.MessageID) {
-	// Manually constructing the XML node for "played" status
-	node := binary.Node{
-		Tag: "receipt",
-		Attrs: binary.Attrs{
-			"to":   chat,
-			"type": "played", // This triggers the Blue Mic
-			"id":   msgID,
-		},
-	}
-	client.SendNode(node)
-}
 
 // 🕵️ HELPER: Get BEST Name
 func GetSenderName(client *whatsmeow.Client, v *events.Message) string {
@@ -268,7 +253,7 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 		time.Sleep(1 * time.Second)
 	}
 
-	// 2. MARK READ (Blue Ticks - "Seen")
+	// 2. MARK READ (Blue Ticks)
 	client.SendPresence(ctx, types.PresenceAvailable)
 	client.MarkRead(ctx, []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
 
@@ -291,9 +276,13 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 		}
 
 		// 🎯 FORCE BLUE MIC (Played Receipt)
-		// MarkRead only sends "read". We need to send "played" manually.
-		sendPlayedReceipt(client, v.Info.Chat, v.Info.ID)
-		fmt.Println("🔵 [RECEIPT] Sent Blue Mic (Played).")
+		// Using the official method provided by whatsmeow
+		err := client.MarkPlayed(ctx, v.Info.ID, time.Now(), v.Info.Chat, v.Info.Sender)
+		if err != nil {
+			fmt.Println("⚠️ Failed to send Played Receipt:", err)
+		} else {
+			fmt.Println("🔵 [RECEIPT] Sent Blue Mic (Played).")
+		}
 
 		fmt.Println("🔄 Transcribing...")
 		data, err := client.Download(ctx, audioMsg)
