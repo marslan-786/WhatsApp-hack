@@ -37,7 +37,7 @@ func GetSenderName(client *whatsmeow.Client, v *events.Message) string {
 	return v.Info.Sender.User 
 }
 
-// 🕵️ HELPER: Get ALL Identifiers for Matching
+// 🕵️ HELPER: Get ALL Identifiers
 func GetAllSenderIdentifiers(client *whatsmeow.Client, v *events.Message) []string {
 	identifiers := []string{}
 	if v.Info.PushName != "" { identifiers = append(identifiers, v.Info.PushName) }
@@ -47,8 +47,27 @@ func GetAllSenderIdentifiers(client *whatsmeow.Client, v *events.Message) []stri
 		if contact.FullName != "" { identifiers = append(identifiers, contact.FullName) }
 		if contact.PushName != "" { identifiers = append(identifiers, contact.PushName) }
 	}
-	identifiers = append(identifiers, v.Info.Sender.User) // Phone Number
+	identifiers = append(identifiers, v.Info.Sender.User)
 	return identifiers
+}
+
+// 🕵️ HELPER: Extract Audio Message (Deep Search)
+func GetAudioFromMessage(msg *waProto.Message) *waProto.AudioMessage {
+	if msg == nil { return nil }
+	if msg.AudioMessage != nil { return msg.AudioMessage }
+	// Check inside Ephemeral (Disappearing Messages)
+	if msg.EphemeralMessage != nil && msg.EphemeralMessage.Message != nil {
+		if msg.EphemeralMessage.Message.AudioMessage != nil {
+			return msg.EphemeralMessage.Message.AudioMessage
+		}
+	}
+	// Check inside ViewOnce
+	if msg.ViewOnceMessage != nil && msg.ViewOnceMessage.Message != nil {
+		if msg.ViewOnceMessage.Message.AudioMessage != nil {
+			return msg.ViewOnceMessage.Message.AudioMessage
+		}
+	}
+	return nil
 }
 
 // 📝 1. HISTORY RECORDER
@@ -70,8 +89,10 @@ func RecordChatHistory(client *whatsmeow.Client, v *events.Message, botID string
 		}
 
 		text := ""
-		if v.Message.GetAudioMessage() != nil {
-			data, err := client.Download(ctx, v.Message.GetAudioMessage())
+		audioMsg := GetAudioFromMessage(v.Message) // 🔥 Deep Search
+
+		if audioMsg != nil {
+			data, err := client.Download(ctx, audioMsg)
 			if err == nil {
 				transcribed, _ := TranscribeAudio(data)
 				if transcribed != "" {
@@ -122,22 +143,10 @@ func HandleAutoAICmd(client *whatsmeow.Client, v *events.Message, args []string)
 	}
 }
 
-// 🧠 3. MAIN CHECKER (GLOBAL RAW VOICE DEBUG)
+// 🧠 3. MAIN CHECKER (DEEP VOICE CHECK)
 func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
 	if time.Since(v.Info.Timestamp) > 60*time.Second { return false }
 	if v.Info.IsFromMe { return false }
-
-	// 🔥🔥🔥 GLOBAL RAW VOICE DEBUG (FOR ANY USER) 🔥🔥🔥
-	if v.Message.GetAudioMessage() != nil {
-		fmt.Println("\n🎤🎤🎤 [GLOBAL VOICE DEBUG] AUDIO RECEIVED 🎤🎤🎤")
-		fmt.Printf("   From JID: %s\n", v.Info.Sender.String())
-		fmt.Printf("   PushName: '%s'\n", v.Info.PushName)
-		fmt.Printf("   Broadcast: %v | Group: %v\n", v.Info.BroadcastListOwner, v.Info.IsGroup)
-		
-		// Print Full Raw Struct
-		fmt.Printf("👇 RAW STRUCT 👇\n%+v\n👆 RAW STRUCT 👆\n", v.Message)
-	}
-	// 🔥🔥🔥 END DEBUG 🔥🔥🔥
 
 	ctx := context.Background()
 	chatID := v.Info.Chat.String()
@@ -150,7 +159,6 @@ func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
 	identifiers := GetAllSenderIdentifiers(client, v)
 	matchedTarget := ""
 	
-	// Match Logic
 	for _, id := range identifiers {
 		idLower := strings.ToLower(strings.TrimSpace(id))
 		for _, t := range targets {
@@ -165,6 +173,14 @@ func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
 	if matchedTarget != "" {
 		fmt.Printf("\n🔔 [AI MATCH] Target: %s | ID: %v\n", matchedTarget, identifiers)
 		
+		// 🔥🔥🔥 RAW VOICE DEBUG 🔥🔥🔥
+		audioMsg := GetAudioFromMessage(v.Message)
+		if audioMsg != nil {
+			fmt.Printf("🎤 [DEEP CHECK] Voice Message Found! (Sec: %d)\n", audioMsg.GetSeconds())
+		} else {
+			fmt.Println("📝 [DEEP CHECK] Text Message Found.")
+		}
+
 		lastOwnerMsgStr, _ := rdb.Get(ctx, fmt.Sprintf(KeyLastOwnerMsg, chatID)).Result()
 		if lastOwnerMsgStr != "" {
 			var lastOwnerMsg int64
@@ -210,9 +226,10 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 	go keepOnlineSmart(client, v.Info.Chat, chatID)
 
 	userText := ""
+	audioMsg := GetAudioFromMessage(v.Message) // 🔥 Deep Search Here Too
 	
-	if v.Message.GetAudioMessage() != nil {
-		duration := int(v.Message.GetAudioMessage().GetSeconds())
+	if audioMsg != nil {
+		duration := int(audioMsg.GetSeconds())
 		if duration == 0 { duration = 5 }
 
 		fmt.Printf("🎤 Processing Voice (%ds)...\n", duration)
@@ -221,7 +238,7 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 		if interrupted := waitAndCheckOwner(ctx, chatID, duration); interrupted { return }
 
 		fmt.Println("🔄 Transcribing...")
-		data, err := client.Download(ctx, v.Message.GetAudioMessage())
+		data, err := client.Download(ctx, audioMsg)
 		if err == nil {
 			transcribed, _ := TranscribeAudio(data)
 			userText = transcribed
@@ -251,7 +268,7 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 	botID = strings.Split(botID, "@")[0]
 
 	inputType := "text"
-	if v.Message.GetAudioMessage() != nil { inputType = "voice" }
+	if audioMsg != nil { inputType = "voice" }
 
 	aiResponse := generateCloneReply(botID, chatID, userText, senderName, inputType)
 	if aiResponse == "" { return }
