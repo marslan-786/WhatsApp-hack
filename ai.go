@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -66,6 +70,13 @@ var (
 	keyMutex     sync.Mutex
 )
 
+// Custom API ka response structure
+type CustomAPIResponse struct {
+	Response string `json:"response"`
+	Status   string `json:"status"`
+	Error    string `json:"error"`
+}
+
 func getTotalKeysCount() int {
 	count := 0
 	for {
@@ -76,6 +87,45 @@ func getTotalKeysCount() int {
 		count++
 	}
 	return count
+}
+
+// Custom API Call Function
+func callCustomAPI(apiURL string, prompt string) (string, error) {
+	// Query param ko encode karein
+	encodedPrompt := url.QueryEscape(prompt)
+	fullURL := fmt.Sprintf("%s?message=%s", apiURL, encodedPrompt)
+
+	req, err := http.NewRequest("GET", fullURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	client := &http.Client{Timeout: 60 * time.Second} // 60 sec timeout taake browser load ho sake
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("API returned status: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var apiResp CustomAPIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return "", err
+	}
+
+	if apiResp.Status == "failed" || apiResp.Error != "" {
+		return "", fmt.Errorf("API Error: %s", apiResp.Error)
+	}
+
+	return apiResp.Response, nil
 }
 
 func processAIConversation(client *whatsmeow.Client, v *events.Message, query string, cmd string, isReply bool) {
@@ -112,54 +162,88 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 	ctx := context.Background()
 	var finalResponse string
 	var lastError error
+	var usedSource string = "CustomAPI"
 
-	totalKeys := getTotalKeysCount()
-	if totalKeys == 0 {
-		totalKeys = 1
+	// =================================================================
+	// 🚀 STEP 1: TRY CUSTOM API (Railway)
+	// =================================================================
+	
+	// Yahan apni Railway wali API ka link dalein
+	customURL := os.Getenv("CUSTOM_API_URL")
+	if customURL == "" {
+		// Fallback agar env set nahi hai
+		customURL = "https://gemini-api-production-b665.up.railway.app/chat"
 	}
 
-	for i := 0; i < totalKeys; i++ {
-		keyMutex.Lock()
-		envKeyName := fmt.Sprintf("GOOGLE_API_KEY_%d", currentKeyID)
-		apiKey := os.Getenv(envKeyName)
-		if apiKey == "" {
-			apiKey = os.Getenv("GOOGLE_API_KEY")
+	log.Println("🔄 Trying Custom API First...")
+	customResp, err := callCustomAPI(customURL, fullPrompt)
+	
+	if err == nil && customResp != "" {
+		finalResponse = customResp
+		log.Println("✅ Custom API Success!")
+	} else {
+		log.Printf("⚠️ Custom API Failed (%v). Switching to Gemini Backup...", err)
+		usedSource = "Gemini"
+		
+		// =================================================================
+		// 🚀 STEP 2: FALLBACK TO GEMINI (Original Loop)
+		// =================================================================
+		
+		totalKeys := getTotalKeysCount()
+		if totalKeys == 0 {
+			totalKeys = 1
 		}
-		keyMutex.Unlock()
 
-		genaiClient, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: apiKey})
-		if err != nil {
-			lastError = err
-			continue
-		}
-
-		result, err := genaiClient.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(fullPrompt), nil)
-
-		if err != nil {
-			lastError = err
-			log.Printf("❌ Key #%d Failed: %v", currentKeyID, err)
+		for i := 0; i < totalKeys; i++ {
 			keyMutex.Lock()
-			currentKeyID++
-			if currentKeyID > totalKeys {
-				currentKeyID = 1
+			envKeyName := fmt.Sprintf("GOOGLE_API_KEY_%d", currentKeyID)
+			apiKey := os.Getenv(envKeyName)
+			if apiKey == "" {
+				apiKey = os.Getenv("GOOGLE_API_KEY")
 			}
 			keyMutex.Unlock()
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
 
-		finalResponse = result.Text()
-		lastError = nil
-		break
+			genaiClient, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: apiKey})
+			if err != nil {
+				lastError = err
+				continue
+			}
+
+			// Note: Gemini API might truncate very long prompts, handle accordingly if needed
+			result, err := genaiClient.Models.GenerateContent(ctx, "gemini-2.0-flash-exp", genai.Text(fullPrompt), nil)
+
+			if err != nil {
+				lastError = err
+				log.Printf("❌ Key #%d Failed: %v", currentKeyID, err)
+				keyMutex.Lock()
+				currentKeyID++
+				if currentKeyID > totalKeys {
+					currentKeyID = 1
+				}
+				keyMutex.Unlock()
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+
+			finalResponse = result.Text()
+			lastError = nil
+			break
+		}
 	}
 
-	if lastError != nil {
+	// Agar dono fail ho jayen
+	if finalResponse == "" {
 		if !isReply {
-			replyMessage(client, v, "❌ System Overload. All keys exhausted.")
+			errMsg := "❌ System Overload. Custom API & All Backup Keys failed."
+			if lastError != nil {
+				errMsg += fmt.Sprintf(" (Last Error: %v)", lastError)
+			}
+			replyMessage(client, v, errMsg)
 		}
 		return
 	}
 
+	// Message Send Karna
 	respPtr, err := client.SendMessage(context.Background(), v.Info.Chat, &waProto.Message{
 		ExtendedTextMessage: &waProto.ExtendedTextMessage{
 			Text: proto.String(finalResponse),
@@ -174,7 +258,12 @@ func processAIConversation(client *whatsmeow.Client, v *events.Message, query st
 	if err == nil {
 		SaveAIHistory(senderID, query, finalResponse, respPtr.ID)
 		if !isReply {
-			react(client, v.Info.Chat, v.Info.ID, "✅")
+			// Reaction based on source (Optional - Debugging ke liye acha hai)
+			if usedSource == "CustomAPI" {
+				react(client, v.Info.Chat, v.Info.ID, "⚡") // Fast/Custom
+			} else {
+				react(client, v.Info.Chat, v.Info.ID, "🐢") // Backup/Gemini
+			}
 		}
 	}
 }
