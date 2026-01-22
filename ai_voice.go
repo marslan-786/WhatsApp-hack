@@ -168,91 +168,89 @@ func requestVoiceServer(url string, text string, speakerFile string) ([]byte, er
 }
 
 func GetGeminiVoiceResponseWithHistory(query string, senderID string) (string, string) {
-    ctx := context.Background()
+	ctx := context.Background()
+	history := GetAIHistory(senderID)
 
-    // 1. History Load Karna
-    history := GetAIHistory(senderID)
+	var validKeys []string
+	if mainKey := os.Getenv("GOOGLE_API_KEY"); mainKey != "" {
+		validKeys = append(validKeys, mainKey)
+	}
+	for i := 1; i <= 50; i++ {
+		if k := os.Getenv(fmt.Sprintf("GOOGLE_API_KEY_%d", i)); k != "" {
+			validKeys = append(validKeys, k)
+		}
+	}
 
-    // 2. Keys Gather Karna
-    var validKeys []string
-    if mainKey := os.Getenv("GOOGLE_API_KEY"); mainKey != "" {
-        validKeys = append(validKeys, mainKey)
-    }
-    for i := 1; i <= 50; i++ {
-        if k := os.Getenv(fmt.Sprintf("GOOGLE_API_KEY_%d", i)); k != "" {
-            validKeys = append(validKeys, k)
-        }
-    }
+	// 🔥🔥🔥 ULTIMATE STRICT PROMPT FOR HINDI SCRIPT 🔥🔥🔥
+	systemPrompt := fmt.Sprintf(`System: You are an AI that can ONLY write in Devanagari script (Hindi).
+	
+	🔴 CRITICAL RULE: YOU ARE FORBIDDEN FROM USING URDU SCRIPT (Nastaliq).
+	🔴 CRITICAL RULE: Even if the user speaks Urdu, you MUST reply using HINDI CHARACTERS.
 
-    // 3. Prompt Tayyar Karna (Strict Hindi Script Enforced)
-    systemPrompt := fmt.Sprintf(`System: You are a deeply caring friend.
-    🔴 VOICE MODE RULES (EXTREMELY STRICT):
-    1. **SCRIPT:** You must ONLY use **Devanagari Script (Hindi)** for the output.
-    2. **LANGUAGE:** The language spoken must be **URDU/HINDI**. Do NOT use English script. Do NOT use Urdu script (Nastaliq).
-    3. **OUTPUT EXAMPLE:**
-       - Correct: "अरे یار، بس یہی حال ہے" -> "अरे यार, बस यही हाल है"
-       - Correct: "میں ٹھیک ہوں" -> "मैं ठीक हूँ"
-       - WRONG: "Main theek hun" (No English)
-       - WRONG: "میں ٹھیک ہوں" (No Urdu Script)
-    4. **Tone:** Casual, loving ('Yaar', 'Jaan').
-    5. **ADAPTIVE LENGTH:**
-       - **Casual Chat:** Keep it SHORT (1-2 sentences).
-       - **Special Request:** If user asks for a Poem/Story, keep it concise (3-4 sentences).
+	Example 1:
+	User: "Kya hal hai?"
+	You: "मैं ठीक हूँ, तुम सुनाओ?"
 
-    Chat History: %s
-    User Voice: "%s"`, history, query)
+	Example 2:
+	User: "Kuch suna do yaar"
+	You: "अरे यार, आज मौसम बहुत प्यारा है।"
 
-    // =================================================================
-    // 🚀 STEP 1: TRY CUSTOM API FIRST (Railway)
-    // =================================================================
-    customURL := os.Getenv("CUSTOM_API_URL")
-    if customURL == "" {
-        customURL = "https://gemini-api-production-b665.up.railway.app/chat"
-    }
+	Example 3 (Complex):
+	User: "Maza aa gaya"
+	You: "हाँ यार, सच में मज़ा आ गया।"
 
-    encodedPrompt := url.QueryEscape(systemPrompt)
-    apiReqURL := fmt.Sprintf("%s?message=%s", customURL, encodedPrompt)
+	CONTEXT:
+	- Tone: Friendly, casual, caring ('Yaar', 'Jaan').
+	- Length: Keep it short (1-2 sentences) unless asked for a story/poem.
+	- Language: Urdu/Hindi spoken language, BUT WRITTEN IN DEVANAGARI ONLY.
 
-    apiClient := &http.Client{Timeout: 90 * time.Second}
-    resp, err := apiClient.Get(apiReqURL)
+	Chat History: %s
+	User Voice Message: "%s"`, history, query)
 
-    if err == nil && resp.StatusCode == 200 {
-        defer resp.Body.Close()
-        body, _ := io.ReadAll(resp.Body)
+	// ... (Rest of the code remains same) ...
+	
+	// 1. Try Custom API
+	customURL := os.Getenv("CUSTOM_API_URL")
+	if customURL == "" {
+		customURL = "https://gemini-api-production-b665.up.railway.app/chat"
+	}
 
-        var apiResp struct {
-            Response string `json:"response"`
-            Status   string `json:"status"`
-        }
+	encodedPrompt := url.QueryEscape(systemPrompt)
+	apiReqURL := fmt.Sprintf("%s?message=%s", customURL, encodedPrompt)
+	
+	apiClient := &http.Client{Timeout: 90 * time.Second}
+	resp, err := apiClient.Get(apiReqURL)
 
-        if json.Unmarshal(body, &apiResp) == nil && apiResp.Status == "success" {
-            fmt.Println("✅ Voice Generated via Custom API (Expected: Devanagari)!")
-            return apiResp.Response, ""
-        }
-    } else {
-        fmt.Printf("⚠️ Custom API Failed (%v). Switching to Backup Keys...\n", err)
-    }
+	if err == nil && resp.StatusCode == 200 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		var apiResp struct {
+			Response string `json:"response"`
+			Status   string `json:"status"`
+		}
+		if json.Unmarshal(body, &apiResp) == nil && apiResp.Status == "success" {
+			fmt.Println("✅ Voice Generated via Custom API (Hindi Script)!")
+			return apiResp.Response, ""
+		}
+	} else {
+		fmt.Printf("⚠️ Custom API Failed (%v). Switching to Backup...\n", err)
+	}
 
-    // =================================================================
-    // 🚀 STEP 2: FALLBACK TO GEMINI
-    // =================================================================
-    for i, key := range validKeys {
-        client, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: key})
-        if err != nil {
-            continue
-        }
+	// 2. Try Gemini Keys
+	for i, key := range validKeys {
+		client, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: key})
+		if err != nil { continue }
+		
+		// Use flash model for speed
+		resp, err := client.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(systemPrompt), nil)
+		if err != nil {
+			fmt.Printf("❌ Key #%d Failed.\n", i+1)
+			continue
+		}
+		return resp.Text(), ""
+	}
 
-        resp, err := client.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(systemPrompt), nil)
-        if err != nil {
-            fmt.Printf("❌ Key #%d Failed. Switching...\n", i+1)
-            continue
-        }
-        
-        fmt.Printf("✅ Voice Generated via Gemini Key #%d\n", i+1)
-        return resp.Text(), ""
-    }
-
-    return "नेटवर्क का मसला है।", "" // Hindi script fallback
+	return "नेटवर्क का मसला है।", ""
 }
 
 func TranscribeAudio(audioData []byte) (string, error) {
