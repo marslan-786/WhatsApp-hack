@@ -25,6 +25,19 @@ const (
 	KeyStickyOnline  = "autoai:sticky_online:%s"
 )
 
+// 🕵️ HELPER: GET BEST NAME
+func GetSenderName(client *whatsmeow.Client, v *events.Message) string {
+	if v.Info.PushName != "" {
+		return v.Info.PushName
+	}
+	ctx := context.Background()
+	if contact, err := client.Store.Contacts.GetContact(ctx, v.Info.Sender); err == nil && contact.Found {
+		if contact.FullName != "" { return contact.FullName }
+		if contact.PushName != "" { return contact.PushName }
+	}
+	return v.Info.Sender.User // Last resort: Phone Number
+}
+
 // 📝 1. HISTORY RECORDER
 func RecordChatHistory(client *whatsmeow.Client, v *events.Message, botID string) {
 	if time.Since(v.Info.Timestamp) > 60*time.Second { return }
@@ -38,14 +51,9 @@ func RecordChatHistory(client *whatsmeow.Client, v *events.Message, botID string
 			rdb.Set(ctx, fmt.Sprintf(KeyLastOwnerMsg, chatID), time.Now().Unix(), 0)
 		}
 
-		senderName := v.Info.PushName
-		if v.Info.IsFromMe {
-			senderName = "Me"
-		} else if senderName == "" {
-			if contact, err := client.Store.Contacts.GetContact(ctx, v.Info.Sender); err == nil && contact.Found {
-				senderName = contact.FullName
-			}
-			if senderName == "" { senderName = "User" }
+		senderName := "Me"
+		if !v.Info.IsFromMe {
+			senderName = GetSenderName(client, v)
 		}
 
 		text := ""
@@ -101,7 +109,7 @@ func HandleAutoAICmd(client *whatsmeow.Client, v *events.Message, args []string)
 	}
 }
 
-// 🧠 3. MAIN CHECKER (WITH EXTREME DEBUGGING)
+// 🧠 3. MAIN CHECKER (RAW DEBUGGER ENABLED)
 func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
 	if time.Since(v.Info.Timestamp) > 60*time.Second { return false }
 	if v.Info.IsFromMe { return false }
@@ -109,75 +117,71 @@ func CheckAndHandleAutoReply(client *whatsmeow.Client, v *events.Message) bool {
 	ctx := context.Background()
 	chatID := v.Info.Chat.String()
 
-	// 1. Refresh Online Timer
 	rdb.Set(ctx, fmt.Sprintf(KeyStickyOnline, chatID), "1", 60*time.Second)
 
-	// 2. Get Targets
 	targets, err := rdb.SMembers(ctx, KeyAutoAITargets).Result()
-	if err != nil || len(targets) == 0 { 
-		// fmt.Println("🚫 [AI DEBUG] No targets set in Redis.")
-		return false 
-	}
+	if err != nil || len(targets) == 0 { return false }
 
-	// 3. Get Name (PushName or Contact Name)
-	incomingName := v.Info.PushName
-	nameSource := "PushName"
+	incomingName := GetSenderName(client, v)
 	
-	if incomingName == "" {
-		if contact, err := client.Store.Contacts.GetContact(ctx, v.Info.Sender); err == nil && contact.Found {
-			incomingName = contact.FullName
-			if incomingName == "" { incomingName = contact.PushName }
-			nameSource = "ContactStore"
-		}
-	}
-
-	// 🔥🔥🔥 HARD DEBUG LOGS START 🔥🔥🔥
-	fmt.Printf("\n🔍 [CHECK] Msg From: %s (Source: %s) | ID: %s\n", incomingName, nameSource, v.Info.Sender.User)
-	fmt.Printf("📋 [LIST] Active Targets: %v\n", targets)
-
+	// Check Match
 	matchedTarget := ""
 	incomingLower := strings.ToLower(incomingName)
-	
 	for _, t := range targets {
-		// Clean the target name (remove extra spaces)
-		cleanTarget := strings.ToLower(strings.TrimSpace(t))
-		
-		// Check match
-		if strings.Contains(incomingLower, cleanTarget) {
+		if strings.Contains(incomingLower, strings.ToLower(strings.TrimSpace(t))) {
 			matchedTarget = t
 			break
 		}
 	}
 
 	if matchedTarget != "" {
-		fmt.Printf("✅ [MATCH] '%s' matched with target '%s'!\n", incomingName, matchedTarget)
+		// =================================================================
+		// 🚧 🚧 🚧 RAW DATA JUGAD LOGGING (ONLY FOR TARGET) 🚧 🚧 🚧
+		// =================================================================
+		fmt.Printf("\n🔥🔥🔥 [TARGET HIT] Match: %s | User: %s 🔥🔥🔥\n", matchedTarget, incomingName)
+		fmt.Println("👇👇👇 [RAW MESSAGE DATA START] 👇👇👇")
 		
-		// Owner Check
+		// Print the Raw Struct
+		fmt.Printf("%+v\n", v.Message)
+
+		// Specific Check for Audio
+		if audio := v.Message.GetAudioMessage(); audio != nil {
+			fmt.Println("------------------------------------------------")
+			fmt.Println("🎤 [AUDIO DETECTED IN RAW]")
+			fmt.Printf("   Seconds: %d\n", audio.GetSeconds())
+			fmt.Printf("   Mimetype: %s\n", audio.GetMimetype())
+			fmt.Printf("   PTT: %v\n", audio.GetPTT())
+			fmt.Println("------------------------------------------------")
+		} else {
+			fmt.Println("❌ [NO AUDIO] v.Message.GetAudioMessage() is NIL")
+		}
+		
+		fmt.Println("👆👆👆 [RAW MESSAGE DATA END] 👆👆👆\n")
+		// =================================================================
+
+		// Check Owner Status
 		lastOwnerMsgStr, _ := rdb.Get(ctx, fmt.Sprintf(KeyLastOwnerMsg, chatID)).Result()
 		if lastOwnerMsgStr != "" {
 			var lastOwnerMsg int64
 			fmt.Sscanf(lastOwnerMsgStr, "%d", &lastOwnerMsg)
 			if time.Now().Unix() - lastOwnerMsg < 60 {
-				fmt.Println("🛑 [ABORT] Owner is active (Last msg < 60s ago). Passing to old handler.")
+				fmt.Println("🛑 [ABORT] Owner is active.")
 				return false
 			}
 		}
 
-		// Success! Start AI Engine
 		go processAIResponse(client, v, incomingName)
 		return true 
 	}
 
-	fmt.Printf("❌ [FAIL] No match found for '%s'. Passing to old handler...\n", incomingName)
 	return false
 }
 
-// 🤖 4. AI ENGINE (Fixed Logic)
+// 🤖 4. AI ENGINE
 func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName string) {
 	ctx := context.Background()
 	chatID := v.Info.Chat.String()
 	
-	// Timing Check
 	lastTimeStr, _ := rdb.Get(ctx, fmt.Sprintf(KeyLastMsgTime, chatID)).Result()
 	var lastTime int64
 	if lastTimeStr != "" { fmt.Sscanf(lastTimeStr, "%d", &lastTime) }
@@ -188,7 +192,7 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 	timeDiff := currentTime - lastTime
 	isActiveChat := timeDiff < 60 
 
-	// Phone Pickup
+	// Online Handling
 	if !isActiveChat {
 		waitTime := 8 + rand.Intn(5)
 		fmt.Printf("🐢 Cold Start. Waiting %ds...\n", waitTime)
@@ -208,29 +212,20 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 		duration := int(v.Message.GetAudioMessage().GetSeconds())
 		if duration == 0 { duration = 5 }
 
-		fmt.Printf("🎤 Voice Found. Listening %ds...\n", duration)
-		
-		// 1. Blue Tick
+		fmt.Printf("🎤 Processing Voice (%ds)...\n", duration)
 		client.MarkRead(ctx, []types.MessageID{v.Info.ID}, v.Info.Timestamp, v.Info.Chat, v.Info.Sender)
 		
-		// 2. Listen
 		if interrupted := waitAndCheckOwner(ctx, chatID, duration); interrupted { return }
 
-		// 3. Transcribe
 		fmt.Println("🔄 Transcribing...")
 		data, err := client.Download(ctx, v.Message.GetAudioMessage())
 		if err == nil {
 			transcribed, _ := TranscribeAudio(data)
-			if transcribed != "" {
-				userText = transcribed
-				fmt.Printf("📝 Transcript: \"%s\"\n", userText)
-			} else {
-				userText = "[Unclear Voice Message]"
-			}
+			userText = transcribed
+			fmt.Printf("📝 Transcript: \"%s\"\n", userText)
 		} else {
-			userText = "[Voice Download Failed]"
+			userText = "[Unclear Voice Message]"
 		}
-
 	} else {
 		userText = v.Message.GetConversation()
 		if userText == "" { userText = v.Message.GetExtendedTextMessage().GetText() }
@@ -248,7 +243,6 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 
 	if userText == "" { return }
 
-	// Generate & Send
 	rawBotID := client.Store.ID.User
 	botID := strings.Split(rawBotID, ":")[0]
 	botID = strings.Split(botID, "@")[0]
@@ -277,8 +271,6 @@ func processAIResponse(client *whatsmeow.Client, v *events.Message, senderName s
 	rdb.RPush(ctx, key, "Me: "+aiResponse)
 	
 	fmt.Printf("🚀 Sent: %s\n", aiResponse)
-	
-	// Refresh Timer
 	rdb.Set(ctx, fmt.Sprintf(KeyStickyOnline, chatID), "1", 60*time.Second)
 }
 
@@ -292,14 +284,11 @@ func keepOnlineSmart(client *whatsmeow.Client, jid types.JID, chatID string) {
 			return
 		}
 		
-		// Owner Check
 		lastOwnerMsgStr, _ := rdb.Get(ctx, fmt.Sprintf(KeyLastOwnerMsg, chatID)).Result()
 		if lastOwnerMsgStr != "" {
 			var lastOwnerMsg int64
 			fmt.Sscanf(lastOwnerMsgStr, "%d", &lastOwnerMsg)
-			if time.Now().Unix() - lastOwnerMsg < 10 {
-				return 
-			}
+			if time.Now().Unix() - lastOwnerMsg < 10 { return }
 		}
 
 		client.SendPresence(ctx, types.PresenceAvailable)
@@ -314,10 +303,7 @@ func waitAndCheckOwner(ctx context.Context, chatID string, seconds int) bool {
 		if lastOwnerMsgStr != "" {
 			var lastOwnerMsg int64
 			fmt.Sscanf(lastOwnerMsgStr, "%d", &lastOwnerMsg)
-			if time.Now().Unix() - lastOwnerMsg < 5 {
-				fmt.Println("🛑 Owner Active! Aborting.")
-				return true 
-			}
+			if time.Now().Unix() - lastOwnerMsg < 5 { return true }
 		}
 		time.Sleep(1 * time.Second)
 	}
