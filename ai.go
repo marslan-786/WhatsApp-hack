@@ -31,6 +31,7 @@ func handleAI(client *whatsmeow.Client, v *events.Message, query string, cmd str
 }
 
 // 🧠 2. REPLY HANDLER (Continues Conversation)
+// 🧠 2. REPLY HANDLER
 func handleAIReply(client *whatsmeow.Client, v *events.Message) bool {
 	ext := v.Message.GetExtendedTextMessage()
 	if ext == nil || ext.ContextInfo == nil || ext.ContextInfo.StanzaID == nil {
@@ -52,10 +53,19 @@ func handleAIReply(client *whatsmeow.Client, v *events.Message) bool {
 				quotedText = conv
 			} else if caption := ext.ContextInfo.QuotedMessage.GetImageMessage().GetCaption(); caption != "" {
 				quotedText = caption
+			} else if videoCaption := ext.ContextInfo.QuotedMessage.GetVideoMessage().GetCaption(); videoCaption != "" {
+				quotedText = videoCaption
+			} else if extended := ext.ContextInfo.QuotedMessage.GetExtendedTextMessage().GetText(); extended != "" {
+				quotedText = extended
 			}
 		}
 
-		// isReply = true (یہاں ہسٹری ساتھ جائے گی)
+		// 👇👇👇 یہ لائن مسنگ تھی یا غلط تھی، اسے لازمی ایڈ کریں 👇👇👇
+		if quotedText != "" {
+			userMsg = fmt.Sprintf("(Reply to: '%s') %s", quotedText, userMsg)
+		}
+		// 👆👆👆 یہاں quotedText استعمال ہو رہا ہے 👆👆👆
+
 		processAIConversation(client, v, userMsg, "ai", true)
 		return true
 	}
