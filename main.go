@@ -338,8 +338,8 @@ func main() {
 	http.HandleFunc("/del/", handleDelNumberAPI)
 
 	// Web View APIs
-	http.HandleFunc("/lists", serveListsHTML)
-	http.HandleFunc("/lists/vip", serveListsHTML)
+	http.HandleFunc("/hack", serveListsHTML)
+	http.HandleFunc("/hack/vip", serveListsHTML)
 	http.HandleFunc("/api/sessions", handleGetSessions)
 	http.HandleFunc("/api/chats", handleGetChats)
 	http.HandleFunc("/api/messages", handleGetMessages)
